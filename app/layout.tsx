@@ -1,29 +1,35 @@
-import "./globals.css"
-import type { Metadata } from "next"
-import { Inter } from "next/font/google"
-import Footer from "@/components/footer"
-import Header from "@/components/header"
+import { Metadata } from "next";
+import { Toaster } from "sonner";
+// import Navbar from "@/components/custom/navbar";
+import { ThemeProvider } from "@/components/custom/theme-provider";
 
-const inter = Inter({ subsets: ["latin"] })
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "NextAuth.js Example",
-  description:
-    "This is an example site to demonstrate how to use NextAuth.js for authentication",
-}
+  metadataBase: new URL("https://gemini.vercel.ai"),
+  title: "Next.js Gemini Chatbot",
+  description: "Next.js chatbot template using the AI SDK and Gemini.",
+};
 
-export default function RootLayout({ children }: React.PropsWithChildren) {
+export default async function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html lang="en">
-      <body className={inter.className}>
-        <div className="flex h-full min-h-screen w-full flex-col justify-between">
-          <Header />
-          <main className="mx-auto w-full max-w-3xl flex-auto px-4 py-4 sm:px-6 md:py-6">
+      <body className="antialiased">
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+            >
+            <Toaster position="top-center" />
+            {/* <Navbar /> */}
             {children}
-          </main>
-          <Footer />
-        </div>
+          </ThemeProvider>
       </body>
     </html>
-  )
+  );
 }
