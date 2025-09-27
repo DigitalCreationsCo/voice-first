@@ -1,9 +1,11 @@
 "use client";
 
+import { Message as PreviewMessage } from "@/components/custom/message";
 import { useScrollToBottom } from "@/components/custom/use-scroll-to-bottom";
-import { z } from 'zod';
+
 import { Overview } from "./overview";
-import { streamObject } from "ai";
+
+import { Attachment, ChatRequestOptions, CreateMessage, Message } from "ai";
 import { motion } from "framer-motion";
 import React, {
   useRef,
@@ -15,55 +17,172 @@ import React, {
   ChangeEvent,
 } from "react";
 import { toast } from "sonner";
+
 import { ArrowUpIcon, PaperclipIcon, StopIcon } from "./icons";
 import { PreviewAttachment } from "./preview-attachment";
 import useWindowSize from "./use-window-size";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { MicIcon, Square, Volume2 } from "lucide-react";
-import { geminiProModel } from "@/ai";
-import { cn } from "@/lib/utils";
-import { SpeechRecognitionManager } from "@/lib/speech";
 
+// Performance-optimized audio management
+class AudioManager {
+  private audioContext: AudioContext | null = null;
+  private currentSource: AudioBufferSourceNode | null = null;
+  private isPlaying: boolean = false;
 
-interface UIMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: number;
-  isAudio: boolean;
-  audioData?: ArrayBuffer;
-};
-function buildUIMessage(text: string, role: "user" | "assistant", isAudioInput = false):UIMessage {
-  return {
-    id: `msg-${Date.now()}-user`,
-    role: role,
-    content: text.trim(),
-    timestamp: Date.now(),
-    isAudio: isAudioInput,
-  };
+  async initialize() {
+    if (!this.audioContext) {
+      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    
+    if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+  }
+
+  async playAudio(audioData: ArrayBuffer): Promise<void> {
+    if (!this.audioContext) await this.initialize();
+    if (!this.audioContext) throw new Error('Failed to initialize audio context');
+
+    this.stopAudio();
+
+    const audioBuffer = await this.audioContext.decodeAudioData(audioData);
+    this.currentSource = this.audioContext.createBufferSource();
+    this.currentSource.buffer = audioBuffer;
+    this.currentSource.connect(this.audioContext.destination);
+    
+    this.isPlaying = true;
+    this.currentSource.onended = () => {
+      this.isPlaying = false;
+      this.currentSource = null;
+    };
+
+    this.currentSource.start();
+  }
+
+  stopAudio() {
+    if (this.currentSource) {
+      this.currentSource.stop();
+      this.currentSource = null;
+    }
+    this.isPlaying = false;
+  }
+
+  getIsPlaying() {
+    return this.isPlaying;
+  }
 }
 
+// Performance-optimized speech recognition
+class SpeechRecognitionManager {
+  private recognition: any = null;
+  private isListening: boolean = false;
+  private onResult: ((text: string) => void) | null = null;
+  private onInterimResult: ((text: string) => void) | null = null;
+  private onError: ((error: string) => void) | null = null;
+
+  initialize() {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      throw new Error('Speech recognition not supported');
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    this.recognition = new SpeechRecognition();
+    this.recognition.continuous = true;
+    this.recognition.interimResults = true;
+    this.recognition.lang = 'en-US';
+
+    this.recognition.onresult = (event: any) => {
+      let finalTranscript = '';
+      let interimTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      if (finalTranscript && this.onResult) {
+        this.onResult(finalTranscript);
+      }
+      if (interimTranscript && this.onInterimResult) {
+        this.onInterimResult(interimTranscript);
+      }
+    };
+
+    this.recognition.onerror = (event: any) => {
+      if (this.onError) {
+        this.onError(event.error);
+      }
+    };
+
+    this.recognition.onend = () => {
+      this.isListening = false;
+    };
+  }
+
+  startListening(
+    onResult: (text: string) => void,
+    onInterimResult: (text: string) => void,
+    onError: (error: string) => void
+  ) {
+    if (!this.recognition) this.initialize();
+    
+    this.onResult = onResult;
+    this.onInterimResult = onInterimResult;
+    this.onError = onError;
+    
+    this.recognition.start();
+    this.isListening = true;
+  }
+
+  stopListening() {
+    if (this.recognition) {
+      this.recognition.stop();
+    }
+    this.isListening = false;
+  }
+
+  getIsListening() {
+    return this.isListening;
+  }
+}
+
+interface ConversationMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+  isAudio?: boolean;
+  audioData?: ArrayBuffer;
+}
 
 export function Chat({
   id,
   initialMessages,
 }: {
   id: string;
-  initialMessages: Array<UIMessage>;
+  initialMessages: Array<any>;
 }) {
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<UIMessage[]>([]);
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [attachments, setAttachments] = useState<Array<any>>([]);
   const [messagesContainerRef, messagesEndRef] = useScrollToBottom<HTMLDivElement>();
   
+  // Audio and speech state
+  const [audioManager] = useState(() => new AudioManager());
   const [speechManager] = useState(() => new SpeechRecognitionManager());
   const [isListening, setIsListening] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [currentlyPlayingId, setCurrentlyPlayingId] = useState<string | null>(null);
 
+  // Performance optimizations
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const stop = useCallback(() => {
@@ -74,16 +193,16 @@ export function Chat({
     setIsLoading(false);
     speechManager.stopListening();
     setIsListening(false);
-    speechManager.stopAudio();
+    audioManager.stopAudio();
     setIsPlayingAudio(false);
     setCurrentlyPlayingId(null);
-  }, [speechManager]);
+  }, [audioManager, speechManager]);
 
   // Initialize audio context on user interaction
   useEffect(() => {
     const initAudio = async () => {
       try {
-        await speechManager.initializeAudio();
+        await audioManager.initialize();
       } catch (error) {
         console.error('Failed to initialize audio:', error);
       }
@@ -102,24 +221,117 @@ export function Chat({
       document.removeEventListener('click', handleUserInteraction);
       document.removeEventListener('keydown', handleUserInteraction);
     };
-  }, [speechManager]);
+  }, [audioManager]);
 
+  // Text-to-Speech with streaming
+  const synthesizeSpeech = useCallback(async (text: string, messageId: string) => {
+    try {
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: 'alloy', speed: 1.0 }),
+      });
+
+      if (!response.ok) {
+        throw new Error('TTS API error');
+      }
+
+      const audioData = await response.arrayBuffer();
+      
+      // Update message with audio data
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, audioData }
+          : msg
+      ));
+
+      return audioData;
+    } catch (error) {
+      console.error('TTS Error:', error);
+      toast.error('Failed to generate speech');
+      return null;
+    }
+  }, []);
+
+  // LLM Text Generation with streaming
   const generateTextResponse = useCallback(async (userMessage: string) => {
     try {
-      setIsLoading(true);
-      const { elementStream } = streamObject({
-        model: geminiProModel,
-        output: 'array',
-        schema: z.string(),
-        prompt: "You are a helpful AI assistant. Respond naturally and conversationally. Keep responses concise but engaging. " + userMessage,
-      });
+      abortControllerRef.current = new AbortController();
       
-      for await (const hero of elementStream) {
-        console.log('hero ', hero);
-        const assistantMessage = buildUIMessage(hero, "assistant");
-        setMessages(prev => [...prev, assistantMessage]);
+      const response = await fetch('/api/stream-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            ...messages.map(m => ({ role: m.role, content: m.content })),
+            { role: 'user', content: userMessage }
+          ],
+          stream: true,
+        }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        console.error('response ', response)
+        throw new Error('LLM API error');
       }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const assistantMessage: ConversationMessage = {
+        id: `msg-${Date.now()}-assistant`,
+        role: 'assistant',
+        content: '',
+        timestamp: Date.now(),
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+
+      let fullResponse = '';
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n').filter(line => line.trim());
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(data);
+              const content = parsed.choices?.[0]?.delta?.content || '';
+              if (content) {
+                fullResponse += content;
+                setMessages(prev => prev.map(msg =>
+                  msg.id === assistantMessage.id
+                    ? { ...msg, content: fullResponse }
+                    : msg
+                ));
+              }
+            } catch (e) {
+              console.warn('Failed to parse SSE data:', e);
+            }
+          }
+        }
+      }
+
+      // Generate TTS for the complete response
+      if (fullResponse.trim()) {
+        await synthesizeSpeech(fullResponse, assistantMessage.id);
+      }
+
+      return fullResponse;
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Request aborted');
+        return '';
+      }
       console.error('LLM Error:', error);
       toast.error('Failed to generate response');
       return '';
@@ -127,12 +339,20 @@ export function Chat({
       setIsLoading(false);
       abortControllerRef.current = null;
     }
-  }, [messages]);
+  }, [messages, synthesizeSpeech]);
 
   // Handle message submission
   const handleSubmitMessage = useCallback(async (text: string, isAudioInput = false) => {
     if (!text.trim() || isLoading) return;
-    const userMessage = buildUIMessage(text, "user", isAudioInput);
+
+    const userMessage: ConversationMessage = {
+      id: `msg-${Date.now()}-user`,
+      role: 'user',
+      content: text.trim(),
+      timestamp: Date.now(),
+      isAudio: isAudioInput,
+    };
+
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setInterimTranscript('');
@@ -141,15 +361,15 @@ export function Chat({
     await generateTextResponse(text.trim());
   }, [isLoading, generateTextResponse]);
 
+  // Speech recognition handlers
   const startListening = useCallback(() => {
     try {
       speechManager.startListening(
         (finalText) => {
           handleSubmitMessage(finalText, true);
-          console.log('speechmanager final text ', finalText)
+          setIsListening(false);
         },
         (interimText) => {
-          console.log('speechmanager interimText ', interimText)
           setInterimTranscript(interimText);
         },
         (error) => {
@@ -177,7 +397,7 @@ export function Chat({
     try {
       setCurrentlyPlayingId(messageId);
       setIsPlayingAudio(true);
-      await speechManager.playAudio(audioData);
+      await audioManager.playAudio(audioData);
     } catch (error) {
       console.error('Audio playback error:', error);
       toast.error('Failed to play audio');
@@ -185,13 +405,13 @@ export function Chat({
       setIsPlayingAudio(false);
       setCurrentlyPlayingId(null);
     }
-  }, [speechManager]);
+  }, [audioManager]);
 
   const stopAudio = useCallback(() => {
-    speechManager.stopAudio();
+    audioManager.stopAudio();
     setIsPlayingAudio(false);
     setCurrentlyPlayingId(null);
-  }, [speechManager]);
+  }, [audioManager]);
 
   return (
     <div className="flex flex-row justify-center pb-4 md:pb-8 h-dvh bg-background">
@@ -334,9 +554,9 @@ export function MultimodalInput({
   setInput?: (value: string) => void;
   isLoading?: boolean;
   stop?: () => void;
-  attachments?: Array<any>;
-  setAttachments?: Dispatch<SetStateAction<Array<any>>>;
-  messages?: any[];
+  attachments?: Array<Attachment>;
+  setAttachments?: Dispatch<SetStateAction<Array<Attachment>>>;
+  messages?: Array<ConversationMessage>;
   handleSubmitMessage?: (text: string, isAudio?: boolean) => void;
   isListening?: boolean;
   startListening?: () => void;
@@ -475,19 +695,6 @@ export function MultimodalInput({
           </div>
         )}
 
-      {/* Voice input button */}
-      <Button
-        className={cn([isListening 
-            ? "bg-red-500 hover:bg-red-600 text-white animate-pulse" 
-            : "text-gray-600 dark:text-gray-400",])}
-        onClick={toggleVoiceInput}
-        variant={isListening ? "default" : "outline"}
-        disabled={isLoading || isPlayingAudio}
-        type="button"
-      >
-        <MicIcon size={16} />
-      </Button>
-
       <input
         type="file"
         className="fixed -top-4 -left-4 size-0.5 opacity-0 pointer-events-none"
@@ -496,7 +703,7 @@ export function MultimodalInput({
         onChange={handleFileChange}
         tabIndex={-1}
       />
-      
+
       {(attachments && attachments.length > 0 || uploadQueue.length > 0) && (
         <div className="flex flex-row gap-2 overflow-x-scroll">
           {attachments?.map((attachment) => (
@@ -537,7 +744,7 @@ export function MultimodalInput({
           onChange={handleInput}
           className="min-h-[50px] overflow-hidden resize-none rounded-lg text-base bg-muted border-none pr-20"
           rows={3}
-          // disabled={isListening}
+          disabled={isListening}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
@@ -550,6 +757,21 @@ export function MultimodalInput({
             }
           }}
         />
+
+        {/* Voice input button */}
+        <Button
+          className={`rounded-full p-1.5 h-fit absolute bottom-2 right-16 m-0.5 ${
+            isListening 
+              ? "bg-red-500 hover:bg-red-600 text-white animate-pulse" 
+              : "text-gray-600 dark:text-gray-400"
+          }`}
+          onClick={toggleVoiceInput}
+          variant={isListening ? "default" : "outline"}
+          disabled={isLoading || isPlayingAudio}
+          type="button"
+        >
+          <MicIcon size={14} />
+        </Button>
 
         {/* Submit button */}
         {isLoading ? (

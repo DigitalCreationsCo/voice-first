@@ -19,16 +19,16 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-            >
-            <Toaster position="top-center" />
-            {/* <Navbar /> */}
-            {children}
-          </ThemeProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+          >
+          <Toaster position="top-center" />
+          {/* <Navbar /> */}
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

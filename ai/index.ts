@@ -1,14 +1,10 @@
-import { google } from "@ai-sdk/google";
-import { experimental_wrapLanguageModel as wrapLanguageModel } from "ai";
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 
-import { customMiddleware } from "./custom-middleware";
 
-export const geminiProModel = wrapLanguageModel({
-  model: google("gemini-1.5-pro-002"),
-  middleware: customMiddleware,
-});
+export const geminiProModel = createGoogleGenerativeAI({
+  apiKey: process.env.NEXT_PUBLIC_GOOGLE_GENERATIVE_AI_API_KEY
+}).languageModel("gemini-2.5-pro");
 
-export const geminiFlashModel = wrapLanguageModel({
-  model: google("gemini-1.5-flash-002"),
-  middleware: customMiddleware,
-});
+export const geminiFlashModel = createGoogleGenerativeAI({
+  apiKey: process.env.NEXT_PUBLIC_GOOGLE_GENERATIVE_AI_API_KEY
+}).languageModel("gemini-1.5-flash-002");

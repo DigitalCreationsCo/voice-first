@@ -16,16 +16,15 @@ import {
   saveChat,
 } from "@/db/queries";
 import { generateUUID } from "@/lib/utils";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/app/(auth)/auth"
+import { auth } from "auth"
 
 export async function POST(request: Request, response: Response) {
   const { id, messages }: { id: string; messages: Array<Message> } =
     await request.json();
 
-    const session = await getServerSession(request as any, response as any, authOptions)
+    const session = await auth()
 
-  if (!session) {
+  if (!session || !session.user) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -33,8 +32,9 @@ export async function POST(request: Request, response: Response) {
     (message) => message.content.length > 0,
   );
 
+  const model = await geminiProModel()
   const result = await streamText({
-    model: geminiProModel,
+    model: model,
     system: `\n
         - you help users book flights!
         - keep your responses limited to a sentence.
@@ -234,7 +234,7 @@ export async function POST(request: Request, response: Response) {
     },
   });
 
-  return result.toDataStreamResponse({});
+  return result.toUIMessageStreamResponse({});
 }
 
 export async function DELETE(request: Request) {

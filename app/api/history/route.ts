@@ -1,5 +1,4 @@
 import { auth } from "auth"
-
 import { getChatsByUserId } from "@/db/queries";
 
 export async function GET(request: Request, response: Response) {

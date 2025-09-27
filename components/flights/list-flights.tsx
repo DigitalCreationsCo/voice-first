@@ -1,6 +1,6 @@
 "use client";
 
-import { useChat } from "ai/react";
+import { useChat } from "@ai-sdk/react";
 import { differenceInHours, format } from "date-fns";
 
 const SAMPLE = {
@@ -80,10 +80,8 @@ export function ListFlights({
   chatId: string;
   results?: typeof SAMPLE;
 }) {
-  const { append } = useChat({
+  const { sendMessage } = useChat({
     id: chatId,
-    body: { id: chatId },
-    maxSteps: 5,
   });
 
   return (
@@ -93,9 +91,9 @@ export function ListFlights({
           key={flight.id}
           className="cursor-pointer flex flex-row border-b dark:border-zinc-700 py-2 last-of-type:border-none group"
           onClick={() => {
-            append({
-              role: "user",
-              content: `I would like to book the ${flight.airlines} one!`,
+            sendMessage({
+              messageId: chatId,
+              text: `I would like to book the ${flight.airlines} one!`,
             });
           }}
         >
