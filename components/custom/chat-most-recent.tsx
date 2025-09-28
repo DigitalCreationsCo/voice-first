@@ -24,6 +24,7 @@ import useWindowSize from "./use-window-size";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { MicIcon, Square, Volume2 } from "lucide-react";
+import { throwIfDisallowedDynamic } from "next/dist/server/app-render/dynamic-rendering";
 
 // Performance-optimized audio management
 class AudioManager {
@@ -144,6 +145,7 @@ class SpeechRecognitionManager {
     if (this.recognition) {
       this.recognition.stop();
     }
+    
     this.isListening = false;
   }
 

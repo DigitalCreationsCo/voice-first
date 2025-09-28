@@ -1,7 +1,7 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 
-import { geminiFlashModel } from ".";
+import { geminiFlashModel } from "../lib/text-models";
 
 export async function generateSampleFlightStatus({
   flightNumber,

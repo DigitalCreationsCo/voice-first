@@ -3,7 +3,7 @@
 import { useScrollToBottom } from "@/components/custom/use-scroll-to-bottom";
 import { z } from 'zod';
 import { Overview } from "./overview";
-import { streamObject, experimental_generateSpeech } from "ai";
+import { streamObject } from "ai";
 import { motion } from "framer-motion";
 import React, {
   useRef,
@@ -21,7 +21,7 @@ import useWindowSize from "./use-window-size";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { MicIcon, Square, Volume2 } from "lucide-react";
-import { geminiFlashModelSM, geminiProModelLM } from "@/ai";
+import { geminiProModelLM } from "@/lib/text-models";
 import { cn } from "@/lib/utils";
 import { SpeechRecognitionManager } from "@/lib/speech";
 
@@ -104,38 +104,67 @@ export function Chat({
     };
   }, [speechManager]);
 
-  // Text-to-Speech with streaming
   const synthesizeSpeech = useCallback(async (text: string, messageId: string) => {
     try {
-      const { audio, warnings, responses, providerMetadata } = await experimental_generateSpeech({
-        model: geminiFlashModelSM,
-        text: text.trim(),
-        voice: "Autonoeackag",
-        outputFormat: "mp3",
-        instructions: "Speak the given text, condense the message if necessary.",
-        speed: 1.1,
-        language: "auto",
-        // providerOptions: { }
-        maxRetries: 2,
-        // abortSignal: "",
-        // headers: {}
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text }),
       });
-
-      console.log('providerMetadata ', providerMetadata);
-      console.log('responses ', responses);
-      console.log('warnings ', warnings);
-      console.log('audio ', audio);
-
+  
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(`TTS API error: ${response.status} ${response.statusText} - ${errorData}`);
+      }
+  
+      if (!response.body) {
+        throw new Error("Response body is empty.");
+      }
+  
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const source = audioContext.createBufferSource();
+  
+      // Use a ReadableStreamDefaultReader to read chunks
+      const reader = response.body.getReader();
+  
+      const processAudio = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+  
+          if (done) {
+            console.log('Audio stream finished.');
+            break;
+          }
+  
+          // Convert Uint8Array to ArrayBuffer
+          const arrayBuffer = value.buffer;
+  
+          // Decode the audio data
+          audioContext.decodeAudioData(arrayBuffer, (buffer) => {
+            source.buffer = buffer;
+            source.connect(audioContext.destination);
+            source.start();
+          }, (e) => {
+            console.error('Error decoding audio data:', e);
+          });
+        }
+      };
+  
+      await processAudio();
       // Update message with audio data
-      setMessages(prev => prev.map(msg => 
-        msg.id === messageId
-          ? { ...msg, audio }
-          : msg
-      ));
-
-      return audio;
+      // this.voice.on('speaking', ({ audioData }) => {
+        //   this.playAudio(audioData);
+        // });
+        // setMessages(prev => prev.map(msg => 
+        //   msg.id === messageId
+        //     ? { ...msg, audio }
+        //     : msg
+        // ));
+        
     } catch (error) {
-      console.error('TTS Error:', error);
+      console.error('Error in textToSpeech:', error);
       toast.error('Failed to generate speech');
       return null;
     }

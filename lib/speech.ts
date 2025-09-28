@@ -1,9 +1,16 @@
-// Performance-optimized audio management
+// import { voice } from "@/lib/speech-models";
+
+// export const voice = new GeminiLiveVoice({
+//     apiKey: process.env.NEXT_PUBLIC_GOOGLE_GENERATIVE_AI_API_KEY,
+//     model: "gemini-2.6.flash-preview-tts",
+// });
+
 class AudioManager {
     private audioContext: AudioContext | null = null;
     private currentSource: AudioBufferSourceNode | null = null;
     private isPlaying: boolean = false;
-  
+    // private voice: any | null = null;
+    
     async initializeAudio() {
       if (!this.audioContext) {
         this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -12,7 +19,34 @@ class AudioManager {
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
       }
+
+      // if (!voice.isConnected()){
+      //   await voice.connect();
+      //   // voice.addInstructions("Speak the given text in a polite tone, condense the message if necessary.",);
+
+      //   this.voice = voice;
+
+      //   // Or subscribe to a concatenated audio stream per response
+      //   // voice.on('speaker', audioStream => {
+      //   //   audioStream.pipe(playbackDevice);
+      //   // });
+
+      //   this.voice.on('writing', ({ text, role }) => {
+      //     // Handle transcribed text
+      //     console.log(`${role}: ${text}`);
+      //   });
+
+      //   // Send audio stream
+      //   // const microphoneStream = getMicrophoneStream();
+      //   // await voice.send(microphoneStream);
+
+      //   // When done, disconnect
+      // }
     }
+
+    // async speak(text: string) {
+    //   await this.voice?.speak(text);
+    // }
   
     async playAudio(audioData: ArrayBuffer): Promise<void> {
       if (!this.audioContext) await this.initializeAudio();
@@ -30,12 +64,13 @@ class AudioManager {
         this.isPlaying = false;
         this.currentSource = null;
       };
-  
+      
       this.currentSource.start();
     }
   
     stopAudio() {
       if (this.currentSource) {
+        // this.voice?.answer()
         this.currentSource.stop();
         this.currentSource = null;
       }
@@ -45,9 +80,12 @@ class AudioManager {
     getIsPlaying() {
       return this.isPlaying;
     }
+
+    disconnect() {
+      // this.voice?.disconnect();
+    }
   }
   
-  // Performance-optimized speech recognition
   export class SpeechRecognitionManager extends AudioManager {
     constructor () {
         super();
@@ -152,6 +190,7 @@ class AudioManager {
         clearTimeout(this.interimDebounceTimer);
         this.interimDebounceTimer = null;
       }
+      this.disconnect();
       this.isListening = false;
     }
 
