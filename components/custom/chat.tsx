@@ -3,7 +3,7 @@
 import { useScrollToBottom } from "@/components/custom/use-scroll-to-bottom";
 import { z } from 'zod';
 import { Overview } from "./overview";
-import { streamObject } from "ai";
+import { streamObject, experimental_generateSpeech } from "ai";
 import { motion } from "framer-motion";
 import React, {
   useRef,
@@ -21,7 +21,7 @@ import useWindowSize from "./use-window-size";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { MicIcon, Square, Volume2 } from "lucide-react";
-import { geminiProModel } from "@/ai";
+import { geminiFlashModelSM, geminiProModelLM } from "@/ai";
 import { cn } from "@/lib/utils";
 import { SpeechRecognitionManager } from "@/lib/speech";
 
@@ -104,11 +104,48 @@ export function Chat({
     };
   }, [speechManager]);
 
+  // Text-to-Speech with streaming
+  const synthesizeSpeech = useCallback(async (text: string, messageId: string) => {
+    try {
+      const { audio, warnings, responses, providerMetadata } = await experimental_generateSpeech({
+        model: geminiFlashModelSM,
+        text: text.trim(),
+        voice: "Autonoeackag",
+        outputFormat: "mp3",
+        instructions: "Speak the given text, condense the message if necessary.",
+        speed: 1.1,
+        language: "auto",
+        // providerOptions: { }
+        maxRetries: 2,
+        // abortSignal: "",
+        // headers: {}
+      });
+
+      console.log('providerMetadata ', providerMetadata);
+      console.log('responses ', responses);
+      console.log('warnings ', warnings);
+      console.log('audio ', audio);
+
+      // Update message with audio data
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId
+          ? { ...msg, audio }
+          : msg
+      ));
+
+      return audio;
+    } catch (error) {
+      console.error('TTS Error:', error);
+      toast.error('Failed to generate speech');
+      return null;
+    }
+  }, []);
+
   const generateTextResponse = useCallback(async (userMessage: string) => {
     try {
       setIsLoading(true);
       const { elementStream } = streamObject({
-        model: geminiProModel,
+        model: geminiProModelLM,
         output: 'array',
         schema: z.string(),
         prompt: "You are a helpful AI assistant. Respond naturally and conversationally. Keep responses concise but engaging. " + userMessage,
@@ -118,6 +155,11 @@ export function Chat({
         console.log('hero ', hero);
         const assistantMessage = buildUIMessage(hero, "assistant");
         setMessages(prev => [...prev, assistantMessage]);
+        // trying to generate speech and append ot message afeter text generation,
+        // if it doesn't work, I will move the speech generation before setMessagwes and append audio data
+        if (hero.trim()) {
+          await synthesizeSpeech(hero, assistantMessage.id);
+        }
       }
     } catch (error) {
       console.error('LLM Error:', error);
@@ -127,7 +169,7 @@ export function Chat({
       setIsLoading(false);
       abortControllerRef.current = null;
     }
-  }, [messages]);
+  }, [messages, synthesizeSpeech]);
 
   // Handle message submission
   const handleSubmitMessage = useCallback(async (text: string, isAudioInput = false) => {
@@ -217,8 +259,8 @@ export function Chat({
                         size="sm"
                         variant="outline"
                         onClick={() => 
-                          currentlyPlayingId === message.id 
-                            ? stopAudio() 
+                          currentlyPlayingId === message.id
+                            ? stopAudio()
                             : playAudio(message.id, message.audioData!)
                         }
                         disabled={isPlayingAudio && currentlyPlayingId !== message.id}
@@ -263,7 +305,7 @@ export function Chat({
           {/* Loading indicator */}
           {isLoading && (
             <div className="w-full max-w-2xl px-4">
-              <div className="flex justify-start">
+              <div className="flex justify-center">
                 <div className="max-w-[80%] p-3 rounded-lg bg-gray-100 dark:bg-gray-800">
                   <div className="flex items-center gap-2">
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
@@ -281,7 +323,7 @@ export function Chat({
         </div>
 
         <form className="flex flex-row gap-2 relative items-end w-full md:max-w-[500px] max-w-[calc(100dvw-32px)] px-4 md:px-0">
-          <MultimodalInput  
+          <MultimodalInput
             input={input}
             setInput={setInput}
             isLoading={isLoading}
@@ -532,12 +574,11 @@ export function MultimodalInput({
       <div className="relative">
         <Textarea
           ref={textareaRef}
-          placeholder={isListening ? "Listening for speech..." : "Send a message or click mic to speak..."}
+          placeholder={isListening ? "Type a message or speak" : "Send a message or click mic to speak..."}
           value={input}
           onChange={handleInput}
           className="min-h-[50px] overflow-hidden resize-none rounded-lg text-base bg-muted border-none pr-20"
           rows={3}
-          // disabled={isListening}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
