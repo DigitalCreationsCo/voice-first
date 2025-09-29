@@ -463,11 +463,11 @@ export class SpeechRecognitionManager extends AudioManager {
     }
   }
 
-  setInterimResultDelay(delayMs: number) {
+  protected setInterimResultDelay(delayMs: number) {
     this.interimDebounceDelay = delayMs;
   }
 
-  getIsListening() {
+  protected getIsListening() {
     return this.isListening;
   }
 }

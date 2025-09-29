@@ -132,7 +132,6 @@ export function useAudioManager(): UseAudioManagerReturn {
   }, []);
 
   return {
-    // initializeAudio: managerRef.current?.initializeAudioContext(),
     startListening,
     stopListening,
     isListening,
