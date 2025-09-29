@@ -57,11 +57,11 @@ export function Chat({
 
   // Auto-stop playback when voice input
   useEffect(() => {
-    if (isPlayingAudio || transcript || interimTranscript) {
+    if (isPlayingAudio && interimTranscript) {
       console.info('User input detected. Interrupting audio playback.')
       stopPlayback();
     }
-  }, [])
+  }, [isPlayingAudio, interimTranscript])
 
   // Handle final transcript from voice input
   useEffect(() => {
