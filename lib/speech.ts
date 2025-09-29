@@ -1,16 +1,15 @@
 // Enhanced Audio Manager with Echo Cancellation
 class AudioManager {
   protected audioContext: AudioContext | null = null;
-  protected currentSource: AudioBufferSourceNode | null = null;
+  private currentSource: AudioBufferSourceNode | null = null;
   protected isPlaying: boolean = false;
   protected audioQueue: AudioBuffer[] = [];
-  protected nextPlayTime: number = 0;
-  protected gainNode: GainNode | null = null;
-  protected destinationNode: MediaStreamAudioDestinationNode | null = null;
+  private nextPlayTime: number = 0;
+  private gainNode: GainNode | null = null;
+  private destinationNode: MediaStreamAudioDestinationNode | null = null;
   protected currentlyPlayingId: string | null = null;
-  protected ORIGINAL_GAIN_VALUE = 0.8;
 
-  async initializeAudioContext() {
+  protected async initializeAudioContext() {
     if (!this.audioContext) {
       this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
         sampleRate: 24000,
@@ -28,7 +27,7 @@ class AudioManager {
     // Create gain node for volume control
     if (!this.gainNode) {
       this.gainNode = this.audioContext.createGain();
-      this.gainNode.gain.value = this.ORIGINAL_GAIN_VALUE;
+      this.gainNode.gain.value = 0.8;
     }
 
     // Create destination node for capturing playback audio (echo cancellation reference)
@@ -50,11 +49,6 @@ class AudioManager {
       return;
     }
 
-    // Lower mic gain during playback
-    if (this.gainNode) {
-      this.gainNode.gain.setValueAtTime(0.1, this.audioContext.currentTime);
-    }
-
     this.isPlaying = true;
     if (onPlaybackStateChange) {
       onPlaybackStateChange(true, this.currentlyPlayingId);
@@ -66,11 +60,6 @@ class AudioManager {
         this.isPlaying = false;
         const playingId = this.currentlyPlayingId;
         this.currentlyPlayingId = null;
-
-        // Restore mic gain
-        if (this.gainNode) {
-          this.gainNode.gain.setValueAtTime(this.ORIGINAL_GAIN_VALUE, this.audioContext!.currentTime);
-        }
 
         if (onPlaybackStateChange) {
           onPlaybackStateChange(false, null);
@@ -100,11 +89,6 @@ class AudioManager {
         this.isPlaying = false;
         this.currentlyPlayingId = null;
 
-        // Restore mic gain
-        if (this.gainNode) {
-          this.gainNode.gain.setValueAtTime(this.ORIGINAL_GAIN_VALUE, this.audioContext!.currentTime);
-        }
-        
         if (onPlaybackStateChange) {
           onPlaybackStateChange(false, null);
         }
@@ -179,9 +163,11 @@ export class SpeechRecognitionManager extends AudioManager {
   private interimDebounceTimer: NodeJS.Timeout | null = null;
   private interimDebounceDelay: number = 500;
   
-  // For echo cancellation
   private mediaStream: MediaStream | null = null;
   private audioTracks: MediaStreamTrack[] = [];
+  private inputGainNode: GainNode | null = null;
+  private ORIGINAL_GAIN_VALUE = 0.8;
+  private REDUCED_GAIN_VALUE = 0.2;
 
   async initialize() {
     // Initialize audio context first
@@ -277,11 +263,19 @@ export class SpeechRecognitionManager extends AudioManager {
       this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       this.audioTracks = this.mediaStream.getAudioTracks();
 
+      // Setup input gain node
+      const source = this.audioContext!.createMediaStreamSource(this.mediaStream);
+      this.inputGainNode = this.audioContext!.createGain();
+      this.inputGainNode.gain.value = this.ORIGINAL_GAIN_VALUE;
+      source.connect(this.inputGainNode);
+
       // Log the actual applied constraints
       this.audioTracks.forEach(track => {
+        console.log('Audio Track ', track);
         const settings = track.getSettings();
         console.log('Microphone settings:', settings);
         console.log('Echo cancellation:', settings.echoCancellation);
+        console.log('\n');
       });
 
       // Start recognition
@@ -294,6 +288,32 @@ export class SpeechRecognitionManager extends AudioManager {
         this.onError('Failed to access microphone');
       }
     }
+  }
+
+  protected playQueuedAudioWithReduceInputGain(
+    onPlaybackStateChange?: (isPlaying: boolean, messageId: string | null) => void
+  ): void {
+    const reduceInputGain = (active: boolean) => {
+      if(!this.inputGainNode || !this.audioContext) 
+        return;
+
+      const now = this.audioContext.currentTime;
+      this.inputGainNode.gain.cancelScheduledValues(now);
+      this.inputGainNode.gain.setTargetAtTime(
+        active ? this.REDUCED_GAIN_VALUE : this.ORIGINAL_GAIN_VALUE,
+        now,
+        0.05
+      );
+    };
+
+    const wrappedCallback = (isPlaying: boolean, messageId: string | null) => {
+      reduceInputGain(isPlaying);
+      if (onPlaybackStateChange) {
+        onPlaybackStateChange(isPlaying, messageId);
+      }
+    };
+
+    this.playQueuedAudio(wrappedCallback);
   }
 
   stopListening() {
@@ -400,7 +420,7 @@ export class SpeechRecognitionManager extends AudioManager {
           // Start playing with minimal latency
           const MIN_CHUNKS_TO_START_PLAYBACK = 1;
           if (!this.isPlaying && this.audioQueue.length >= MIN_CHUNKS_TO_START_PLAYBACK) {
-            this.playQueuedAudio(this.onPlaybackStateChange || undefined);
+            this.playQueuedAudioWithReduceInputGain(this.onPlaybackStateChange || undefined);
           }
         }
 
@@ -427,7 +447,7 @@ export class SpeechRecognitionManager extends AudioManager {
           
           // Ensure any remaining queued audio is played
           if (!this.isPlaying && this.audioQueue.length > 0) {
-            this.playQueuedAudio(this.onPlaybackStateChange || undefined);
+            this.playQueuedAudioWithReduceInputGain(this.onPlaybackStateChange || undefined);
           }
           break;
         }
