@@ -47,14 +47,17 @@ export function useAudioManager(): UseAudioManagerReturn {
 
     const handleUserInteraction = () => {
       initializeManager();
+      document.removeEventListener('mousemove', handleUserInteraction);
       document.removeEventListener('click', handleUserInteraction);
       document.removeEventListener('keydown', handleUserInteraction);
     };
 
+    document.addEventListener('mousemove', handleUserInteraction);
     document.addEventListener('click', handleUserInteraction);
     document.addEventListener('keydown', handleUserInteraction);
 
     return () => {
+      document.removeEventListener('mousemove', handleUserInteraction);
       document.removeEventListener('click', handleUserInteraction);
       document.removeEventListener('keydown', handleUserInteraction);
       if (managerRef.current) {
@@ -67,11 +70,10 @@ export function useAudioManager(): UseAudioManagerReturn {
   const startListening = useCallback(async () => {
     if (!managerRef.current || !isInitialized) {
       console.error('Audio manager not initialized');
-      return;
     }
 
     try {
-      await managerRef.current.startListening(
+      await managerRef.current?.startListening(
         (finalText) => {
           setTranscript(finalText);
           setInterimTranscript('');
@@ -112,11 +114,6 @@ export function useAudioManager(): UseAudioManagerReturn {
         (isPlaying, msgId) => {
           setIsPlayingAudio(isPlaying);
           setCurrentlyPlayingId(msgId);
-          
-          // Auto-stop listening when playback starts
-          if (isPlaying && isListening) {
-            stopListening();
-          }
         }
       );
     } catch (error) {

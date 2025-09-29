@@ -55,12 +55,20 @@ export function Chat({
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Auto-stop playback when voice input
+  useEffect(() => {
+    if (isPlayingAudio || transcript || interimTranscript) {
+      console.info('User input detected. Interrupting audio playback.')
+      stopPlayback();
+    }
+  }, [])
+
   // Handle final transcript from voice input
-  // useEffect(() => {
-  //   if (transcript && !isLoading) {
-  //     handleSubmitMessage(transcript, true);
-  //   }
-  // }, [transcript]);
+  useEffect(() => {
+    if (transcript && !isLoading) {
+      handleSubmitMessage(transcript, true);
+    }
+  }, [transcript]);
 
   const stop = useCallback(() => {
     if (abortControllerRef.current) {
@@ -141,11 +149,6 @@ export function Chat({
 
   const handleStartListening = useCallback(() => {
     try {
-      if (!isInitialized) {
-        toast.error('Audio system not ready');
-        return;
-      }
-      
       if (isPlayingAudio) {
         toast.info('Please wait for audio to finish');
         return;

@@ -241,11 +241,11 @@ export class SpeechRecognitionManager extends AudioManager {
     if (!this.recognition) await this.initialize();
     
     // Don't start listening if audio is playing
-    if (this.isPlaying) {
-      console.log('Cannot start listening while audio is playing');
-      onError('Cannot start listening while audio is playing');
-      return;
-    }
+    // if (this.isPlaying) {
+    //   console.log('Cannot start listening while audio is playing');
+    //   onError('Cannot start listening while audio is playing');
+    //   return;
+    // }
 
     this.onResult = onResult;
     this.onInterimResult = onInterimResult;
@@ -324,12 +324,6 @@ export class SpeechRecognitionManager extends AudioManager {
       // Store callback for playback state changes
       this.onPlaybackStateChange = onPlaybackStateChange || null;
       this.currentlyPlayingId = messageId;
-
-      // Auto-stop listening when starting playback
-      if (this.isListening) {
-        console.log('Stopping listening due to playback starting');
-        this.stopListening();
-      }
 
       const response = await fetch('/api/tts', {
         method: 'POST',
