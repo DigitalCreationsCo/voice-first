@@ -17,7 +17,10 @@ class AudioManager {
       });
     }
     
+    console.log('this.audioContext.state 1', this.audioContext.state);
+
     if (this.audioContext.state === 'suspended') {
+      console.log('audio state, 2', this.audioContext.state)
       await this.audioContext.resume();
     }
 

@@ -18,6 +18,7 @@ interface UseAudioManagerReturn {
   
   // State
   isInitialized: boolean;
+  initializeAudio?: any;
 }
 
 export function useAudioManager(): UseAudioManagerReturn {
@@ -44,9 +45,18 @@ export function useAudioManager(): UseAudioManagerReturn {
       }
     };
 
-    initializeManager();
+    const handleUserInteraction = () => {
+      initializeManager();
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
+    };
+
+    document.addEventListener('click', handleUserInteraction);
+    document.addEventListener('keydown', handleUserInteraction);
 
     return () => {
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
       if (managerRef.current) {
         managerRef.current.stopListening();
         managerRef.current.destroy();
@@ -125,6 +135,7 @@ export function useAudioManager(): UseAudioManagerReturn {
   }, []);
 
   return {
+    // initializeAudio: managerRef.current?.initializeAudioContext(),
     startListening,
     stopListening,
     isListening,
