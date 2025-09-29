@@ -1,4 +1,4 @@
-import { Chat } from "@/components/custom/chat";
+import { Chat } from "@/components/chat/chat";
 import { generateUUID } from "@/lib/utils";
 
 export default async function Page() {

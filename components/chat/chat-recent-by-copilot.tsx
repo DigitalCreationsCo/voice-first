@@ -1,9 +1,9 @@
 "use client";
 
-import { Message as PreviewMessage } from "@/components/custom/message";
-import { useScrollToBottom } from "@/components/custom/use-scroll-to-bottom";
+import { Message as PreviewMessage } from "@/components/chat/message";
+import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 
-import { Overview } from "./overview";
+import { Overview } from "../custom/overview";
 
 import { Attachment, ChatRequestOptions, CreateMessage, Message } from "ai";
 import { motion } from "framer-motion";
@@ -18,9 +18,9 @@ import React, {
 } from "react";
 import { toast } from "sonner";
 
-import { ArrowUpIcon, PaperclipIcon, StopIcon } from "./icons";
-import { PreviewAttachment } from "./preview-attachment";
-import useWindowSize from "./use-window-size";
+import { ArrowUpIcon, PaperclipIcon, StopIcon } from "../custom/icons";
+import { PreviewAttachment } from "../custom/preview-attachment";
+import useWindowSize from "../../hooks/use-window-size";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { MicIcon, Square, Volume2 } from "lucide-react";

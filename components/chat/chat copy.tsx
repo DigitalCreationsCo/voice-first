@@ -1,11 +1,11 @@
 "use client";
 import { useChat, useCompletion } from '@ai-sdk/react'
 
-import { Message as PreviewMessage } from "@/components/custom/message";
-import { useScrollToBottom } from "@/components/custom/use-scroll-to-bottom";
+import { Message as PreviewMessage } from "@/components/chat/message";
+import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 
 import { MultimodalInput } from "./multimodal-input";
-import { Overview } from "./overview";
+import { Overview } from "../custom/overview";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Mic, MicOff, Volume2, VolumeX, Send, Trash2, Download, Settings, MessageSquare, Headphones } from 'lucide-react';

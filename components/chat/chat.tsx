@@ -1,10 +1,9 @@
 "use client";
 
-import { useScrollToBottom } from "@/components/custom/use-scroll-to-bottom";
+import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { z } from 'zod';
-import { Overview } from "./overview";
+import { Overview } from "../custom/overview";
 import { streamObject } from "ai";
-import { motion } from "framer-motion";
 import React, {
   useRef,
   useEffect,
@@ -15,34 +14,17 @@ import React, {
   ChangeEvent,
 } from "react";
 import { toast } from "sonner";
-import { ArrowUpIcon, PaperclipIcon, StopIcon } from "./icons";
+import { ArrowUpIcon, PaperclipIcon, StopIcon } from "../custom/icons";
 import { PreviewAttachment } from "./preview-attachment";
-import useWindowSize from "./use-window-size";
+import useWindowSize from "../../hooks/use-window-size";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
-import { MicIcon, Square, Volume2 } from "lucide-react";
-import { geminiProModelLM } from "@/lib/text-models";
-import { cn } from "@/lib/utils";
-import { SpeechRecognitionManager } from "@/lib/speech";
-
-
-interface UIMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: number;
-  isAudio: boolean;
-  audioData?: ArrayBuffer;
-};
-function buildUIMessage(text: string, role: "user" | "assistant", isAudioInput = false):UIMessage {
-  return {
-    id: `msg-${Date.now()}-user`,
-    role: role,
-    content: text.trim(),
-    timestamp: Date.now(),
-    isAudio: isAudioInput,
-  };
-}
+import { geminiFlashModelSM } from "@/lib/text-models";
+import { buildUIMessage, UIMessage } from "@/lib/utils";
+import { SuggestedActions } from "./suggested-actions";
+import { VoiceInputButton } from "./voice-input-button";
+import { Message } from "./message";
+import { useAudioManager } from "@/hooks/use-audio-manager";
 
 
 export function Chat({
@@ -58,13 +40,27 @@ export function Chat({
   const [attachments, setAttachments] = useState<Array<any>>([]);
   const [messagesContainerRef, messagesEndRef] = useScrollToBottom<HTMLDivElement>();
   
-  const [speechManager] = useState(() => new SpeechRecognitionManager());
-  const [isListening, setIsListening] = useState(false);
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [interimTranscript, setInterimTranscript] = useState('');
-  const [currentlyPlayingId, setCurrentlyPlayingId] = useState<string | null>(null);
+  const {
+    startListening,
+    stopListening,
+    isListening,
+    transcript,
+    interimTranscript,
+    synthesizeSpeech,
+    stopPlayback,
+    isPlayingAudio,
+    currentlyPlayingId,
+    isInitialized,
+  } = useAudioManager();
 
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Handle final transcript from voice input
+  // useEffect(() => {
+  //   if (transcript && !isLoading) {
+  //     handleSubmitMessage(transcript, true);
+  //   }
+  // }, [transcript]);
 
   const stop = useCallback(() => {
     if (abortControllerRef.current) {
@@ -72,123 +68,54 @@ export function Chat({
       abortControllerRef.current = null;
     }
     setIsLoading(false);
-    speechManager.stopListening();
-    setIsListening(false);
-    speechManager.stopAudio();
-    setIsPlayingAudio(false);
-    setCurrentlyPlayingId(null);
-  }, [speechManager]);
-
-  // Initialize audio context on user interaction
-  useEffect(() => {
-    const initAudio = async () => {
-      try {
-        await speechManager.initializeAudio();
-      } catch (error) {
-        console.error('Failed to initialize audio:', error);
-      }
-    };
-    
-    const handleUserInteraction = () => {
-      initAudio();
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('keydown', handleUserInteraction);
-    };
-
-    document.addEventListener('click', handleUserInteraction);
-    document.addEventListener('keydown', handleUserInteraction);
-
-    return () => {
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('keydown', handleUserInteraction);
-    };
-  }, [speechManager]);
-
-  const synthesizeSpeech = useCallback(async (text: string, messageId: string) => {
-    try {
-      const response = await fetch('/api/tts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text }),
-      });
-  
-      if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(`TTS API error: ${response.status} ${response.statusText} - ${errorData}`);
-      }
-  
-      if (!response.body) {
-        throw new Error("Response body is empty.");
-      }
-  
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const source = audioContext.createBufferSource();
-  
-      // Use a ReadableStreamDefaultReader to read chunks
-      const reader = response.body.getReader();
-  
-      const processAudio = async () => {
-        while (true) {
-          const { done, value } = await reader.read();
-  
-          if (done) {
-            console.log('Audio stream finished.');
-            break;
-          }
-  
-          // Convert Uint8Array to ArrayBuffer
-          const arrayBuffer = value.buffer;
-  
-          // Decode the audio data
-          audioContext.decodeAudioData(arrayBuffer, (buffer) => {
-            source.buffer = buffer;
-            source.connect(audioContext.destination);
-            source.start();
-          }, (e) => {
-            console.error('Error decoding audio data:', e);
-          });
-        }
-      };
-  
-      await processAudio();
-      // Update message with audio data
-      // this.voice.on('speaking', ({ audioData }) => {
-        //   this.playAudio(audioData);
-        // });
-        // setMessages(prev => prev.map(msg => 
-        //   msg.id === messageId
-        //     ? { ...msg, audio }
-        //     : msg
-        // ));
-        
-    } catch (error) {
-      console.error('Error in textToSpeech:', error);
-      toast.error('Failed to generate speech');
-      return null;
-    }
-  }, []);
+    stopListening();
+    stopPlayback();
+  }, [stopListening, stopPlayback]);
 
   const generateTextResponse = useCallback(async (userMessage: string) => {
     try {
       setIsLoading(true);
+
       const { elementStream } = streamObject({
-        model: geminiProModelLM,
+        maxOutputTokens: 1000,
+        model: geminiFlashModelSM,
         output: 'array',
         schema: z.string(),
         prompt: "You are a helpful AI assistant. Respond naturally and conversationally. Keep responses concise but engaging. " + userMessage,
       });
       
-      for await (const hero of elementStream) {
-        console.log('hero ', hero);
-        const assistantMessage = buildUIMessage(hero, "assistant");
-        setMessages(prev => [...prev, assistantMessage]);
-        // trying to generate speech and append ot message afeter text generation,
-        // if it doesn't work, I will move the speech generation before setMessagwes and append audio data
-        if (hero.trim()) {
-          await synthesizeSpeech(hero, assistantMessage.id);
-        }
+      let fullResponse = '';
+
+      for await (const textChunk of elementStream) {
+        console.log('text chunk: ', textChunk);
+        fullResponse += textChunk;
+
+        const assistantMessage = buildUIMessage(textChunk, "assistant");
+        setMessages(prev => {
+          const lastMessage = prev[prev.length - 1];
+          if (lastMessage?.role === "assistant" && !lastMessage.isComplete) {
+            // Update existing assistant message
+            return [
+              ...prev.slice(0, -1),
+              { ...lastMessage, content: fullResponse }
+            ]
+          }
+          // Add new assistant message
+          return [...prev, { ...assistantMessage, isComplete: false }]
+        });
+      }
+
+      // Mark message as complete and generate speech
+      const finalMessage = buildUIMessage(fullResponse, "assistant");
+      setMessages(prev => {
+        const withoutIncomplete = prev.filter(m => m.role !== 'assistant' || m.isComplete !== false);
+        return [...withoutIncomplete, { ...finalMessage, isComplete: true }];
+      });
+        
+      // trying to generate speech and append ot message afeter text generation,
+      // if it doesn't work, I will move the speech generation before setMessagwes and append audio data
+      if (fullResponse.trim()) {
+        await synthesizeSpeech(fullResponse, finalMessage.id);
       }
     } catch (error) {
       console.error('LLM Error:', error);
@@ -198,71 +125,42 @@ export function Chat({
       setIsLoading(false);
       abortControllerRef.current = null;
     }
-  }, [messages, synthesizeSpeech]);
+  }, [synthesizeSpeech]);
 
   // Handle message submission
   const handleSubmitMessage = useCallback(async (text: string, isAudioInput = false) => {
     if (!text.trim() || isLoading) return;
+
     const userMessage = buildUIMessage(text, "user", isAudioInput);
+
     setMessages(prev => [...prev, userMessage]);
     setInput('');
-    setInterimTranscript('');
-    setIsLoading(true);
 
     await generateTextResponse(text.trim());
   }, [isLoading, generateTextResponse]);
 
-  const startListening = useCallback(() => {
+  const handleStartListening = useCallback(() => {
     try {
-      speechManager.startListening(
-        (finalText) => {
-          handleSubmitMessage(finalText, true);
-          console.log('speechmanager final text ', finalText)
-        },
-        (interimText) => {
-          console.log('speechmanager interimText ', interimText)
-          setInterimTranscript(interimText);
-        },
-        (error) => {
-          console.error('Speech recognition error:', error);
-          toast.error('Speech recognition failed');
-          setIsListening(false);
-          setInterimTranscript('');
-        }
-      );
-      setIsListening(true);
+      if (!isInitialized) {
+        toast.error('Audio system not ready');
+        return;
+      }
+      
+      if (isPlayingAudio) {
+        toast.info('Please wait for audio to finish');
+        return;
+      }
+
+      startListening();
     } catch (error) {
       console.error('Failed to start listening:', error);
-      toast.error('Speech recognition not available');
+      toast.error('An error occurred while initializing');
     }
-  }, [speechManager, handleSubmitMessage]);
+  }, [isInitialized, isPlayingAudio, startListening]);
 
-  const stopListening = useCallback(() => {
-    speechManager.stopListening();
-    setIsListening(false);
-    setInterimTranscript('');
-  }, [speechManager]);
-
-  // Audio playback
-  const playAudio = useCallback(async (messageId: string, audioData: ArrayBuffer) => {
-    try {
-      setCurrentlyPlayingId(messageId);
-      setIsPlayingAudio(true);
-      await speechManager.playAudio(audioData);
-    } catch (error) {
-      console.error('Audio playback error:', error);
-      toast.error('Failed to play audio');
-    } finally {
-      setIsPlayingAudio(false);
-      setCurrentlyPlayingId(null);
-    }
-  }, [speechManager]);
-
-  const stopAudio = useCallback(() => {
-    speechManager.stopAudio();
-    setIsPlayingAudio(false);
-    setCurrentlyPlayingId(null);
-  }, [speechManager]);
+  const handleStopListening = useCallback(() => {
+    stopListening();
+  }, [stopListening]);
 
   return (
     <div className="flex flex-row justify-center pb-4 md:pb-8 h-dvh bg-background">
@@ -274,49 +172,57 @@ export function Chat({
           {messages.length === 0 && <Overview />}
 
           {messages.map((message) => (
-            <div key={message.id} className="w-full max-w-2xl px-4">
-              <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] p-3 rounded-lg ${
-                  message.role === 'user' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-                }`}>
-                  <p className="whitespace-pre-wrap">{message.content}</p>
-                  {message.role === 'assistant' && message.audioData && (
-                    <div className="flex items-center gap-2 mt-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => 
-                          currentlyPlayingId === message.id
-                            ? stopAudio()
-                            : playAudio(message.id, message.audioData!)
-                        }
-                        disabled={isPlayingAudio && currentlyPlayingId !== message.id}
-                        className="text-xs"
-                      >
-                        {currentlyPlayingId === message.id ? (
-                          <>
-                            <Square size={12} className="mr-1" />
-                            Stop
-                          </>
-                        ) : (
-                          <>
-                            <Volume2 size={12} className="mr-1" />
-                            Play
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  )}
-                  {message.isAudio && (
-                    <div className="text-xs opacity-70 mt-1">
-                      🎤 Voice input
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+            <Message 
+              key={message.id}
+              chatId={id}
+              role={message.role}
+              content={message.content}
+              // toolInvocations={message.toolInvocations}
+              // attachments={message.attachments}
+            />
+            // <div key={message.id} className="w-full max-w-2xl px-4">
+            //   <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            //     <div className={`max-w-[80%] p-3 rounded-lg ${
+            //       message.role === 'user' 
+            //         ? 'bg-blue-500 text-white' 
+            //         : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+            //     }`}>
+            //       <p className="whitespace-pre-wrap">{message.content}</p>
+            //       {message.role === 'assistant' && message.audioData && (
+            //         <div className="flex items-center gap-2 mt-2">
+            //           <Button
+            //             size="sm"
+            //             variant="outline"
+            //             onClick={() => 
+            //               currentlyPlayingId === message.id
+            //                 ? stopAudio()
+            //                 : playAudio(message.id, message.audioData!)
+            //             }
+            //             disabled={isPlayingAudio && currentlyPlayingId !== message.id}
+            //             className="text-xs"
+            //           >
+            //             {currentlyPlayingId === message.id ? (
+            //               <>
+            //                 <Square size={12} className="mr-1" />
+            //                 Stop
+            //               </>
+            //             ) : (
+            //               <>
+            //                 <Volume2 size={12} className="mr-1" />
+            //                 Play
+            //               </>
+            //             )}
+            //           </Button>
+            //         </div>
+            //       )}
+            //       {message.isAudio && (
+            //         <div className="text-xs opacity-70 mt-1">
+            //           🎤 Voice input
+            //         </div>
+            //       )}
+            //     </div>
+            //   </div>
+            // </div>
           ))}
 
           {/* Show interim transcript */}
@@ -362,8 +268,8 @@ export function Chat({
             messages={messages}
             handleSubmitMessage={handleSubmitMessage}
             isListening={isListening}
-            startListening={startListening}
-            stopListening={stopListening}
+            handleStartListening={handleStartListening}
+            handleStopListening={handleStopListening}
             interimTranscript={interimTranscript}
             isPlayingAudio={isPlayingAudio}
           />
@@ -372,19 +278,6 @@ export function Chat({
     </div>
   );
 }
-
-const suggestedActions = [
-  {
-    title: "Ask me anything",
-    label: "I can help with various topics",
-    action: "Hello! What can you help me with today?",
-  },
-  {
-    title: "Start voice conversation",
-    label: "Click the mic to talk",
-    action: "Let's have a voice conversation!",
-  },
-];
 
 export function MultimodalInput({
   input,
@@ -396,8 +289,8 @@ export function MultimodalInput({
   messages,
   handleSubmitMessage,
   isListening,
-  startListening,
-  stopListening,
+  handleStartListening,
+  handleStopListening,
   interimTranscript,
   isPlayingAudio,
 }: {
@@ -407,11 +300,11 @@ export function MultimodalInput({
   stop?: () => void;
   attachments?: Array<any>;
   setAttachments?: Dispatch<SetStateAction<Array<any>>>;
-  messages?: any[];
+  messages: any[];
   handleSubmitMessage?: (text: string, isAudio?: boolean) => void;
   isListening?: boolean;
-  startListening?: () => void;
-  stopListening?: () => void;
+  handleStartListening: () => void;
+  handleStopListening: () => void;
   interimTranscript?: string;
   isPlayingAudio?: boolean;
 }) {
@@ -507,57 +400,25 @@ export function MultimodalInput({
 
   const toggleVoiceInput = useCallback(() => {
     if (isListening) {
-      stopListening?.();
+      handleStopListening();
     } else {
-      startListening?.();
+      handleStartListening();
     }
-  }, [isListening, startListening, stopListening]);
+  }, [isListening, handleStartListening, handleStopListening]);
 
   return (
     <div className="relative w-full flex flex-col gap-4">
       {messages?.length === 0 &&
         attachments?.length === 0 &&
         uploadQueue.length === 0 && (
-          <div className="grid sm:grid-cols-2 gap-4 w-full md:px-0 mx-auto md:max-w-[500px]">
-            {suggestedActions.map((suggestedAction, index) => (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 20 }}
-                transition={{ delay: 0.05 * index }}
-                key={index}
-                className={index > 1 ? "hidden sm:block" : "block"}
-              >
-                <button
-                  onClick={async () => {
-                    if (handleSubmitMessage) {
-                      handleSubmitMessage(suggestedAction.action);
-                    }
-                  }}
-                  className="border-none bg-muted/50 w-full text-left border border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-300 rounded-lg p-3 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex flex-col"
-                >
-                  <span className="font-medium">{suggestedAction.title}</span>
-                  <span className="text-zinc-500 dark:text-zinc-400">
-                    {suggestedAction.label}
-                  </span>
-                </button>
-              </motion.div>
-            ))}
-          </div>
+          <SuggestedActions handleSubmitMessage={handleSubmitMessage} />
         )}
 
-      {/* Voice input button */}
-      <Button
-        className={cn([isListening 
-            ? "bg-red-500 hover:bg-red-600 text-white animate-pulse" 
-            : "text-gray-600 dark:text-gray-400",])}
-        onClick={toggleVoiceInput}
-        variant={isListening ? "default" : "outline"}
-        disabled={isLoading || isPlayingAudio}
-        type="button"
-      >
-        <MicIcon size={16} />
-      </Button>
+      <VoiceInputButton
+      isListening={isListening}
+      toggleVoiceInput={toggleVoiceInput}
+      disabled={isLoading || isPlayingAudio} 
+      />
 
       <input
         type="file"
@@ -663,4 +524,4 @@ export function MultimodalInput({
       </div>
     </div>
   );
-}
+};

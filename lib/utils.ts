@@ -2,8 +2,8 @@ import {
   CoreMessage,
   CoreToolMessage,
   generateId,
-  Message,
-  ToolInvocation,
+  // UIMessage,
+  UIToolInvocation,
 } from "ai";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -194,6 +194,28 @@ export function convertToUIMessages(
   }, []);
 }
 
+
+export interface UIMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+  isAudio: boolean;
+  audioData?: ArrayBuffer;
+  isComplete: boolean;
+};
+
+export function buildUIMessage(text: string, role: "user" | "assistant", isAudioInput = false):UIMessage {
+  return {
+    id: `msg-${Date.now()}-user`,
+    role: role,
+    content: text.trim(),
+    timestamp: Date.now(),
+    isAudio: isAudioInput,
+    isComplete: false
+  };
+};
+
 export function getTitleFromChat(chat: Chat) {
   const messages = convertToUIMessages(chat.messages as Array<CoreMessage>);
   const firstMessage = messages[0];
@@ -203,5 +225,5 @@ export function getTitleFromChat(chat: Chat) {
   }
 
   return firstMessage.content;
-}
+};
 

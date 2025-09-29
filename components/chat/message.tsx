@@ -1,13 +1,13 @@
 "use client";
 
-// import { Attachment, ToolInvocation } from "ai";
+import { FileUIPart, UIToolInvocation } from "ai";
 import { motion } from "framer-motion";
 import { ReactNode } from "react";
 
-import { BotIcon, UserIcon } from "./icons";
-import { Markdown } from "./markdown";
+import { BotIcon, UserIcon } from "../custom/icons";
+import { Markdown } from "../custom/markdown";
 import { PreviewAttachment } from "./preview-attachment";
-import { Weather } from "./weather";
+import { Weather } from "../custom/weather";
 import { AuthorizePayment } from "../flights/authorize-payment";
 import { DisplayBoardingPass } from "../flights/boarding-pass";
 import { CreateReservation } from "../flights/create-reservation";
@@ -26,7 +26,7 @@ export const Message = ({
   chatId: string;
   role: string;
   content: string | ReactNode;
-  toolInvocations: Array<any> | undefined;
+  toolInvocations?: Array<any> | undefined;
   attachments?: Array<any>;
 }) => {
   return (

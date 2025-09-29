@@ -12,9 +12,9 @@ import React, {
 } from "react";
 import { toast } from "sonner";
 
-import { ArrowUpIcon, PaperclipIcon, StopIcon } from "./icons";
-import { PreviewAttachment } from "./preview-attachment";
-import useWindowSize from "./use-window-size";
+import { ArrowUpIcon, PaperclipIcon, StopIcon } from "../custom/icons";
+import { PreviewAttachment } from "../preview-attachment";
+import useWindowSize from "../../hooks/use-window-size";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { MicIcon } from "lucide-react";
@@ -42,31 +42,6 @@ const suggestedActions = [
 ];
 
 export function MultimodalInput({
-  input,
-  isLoading,
-  stop,
-  attachments,
-  setAttachments,
-  messages,
-}: {
-  input?: string
-  setInput?: (value: string) => void;
-  isLoading?: boolean;
-  stop?: () => void;
-  attachments?: Array<Attachment>;
-  setAttachments?: Dispatch<SetStateAction<Array<Attachment>>>;
-  messages?: Array<Message>;
-  append?: (
-    message: Message | CreateMessage,
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
-  handleSubmit?: (
-    event?: {
-      preventDefault?: () => void;
-    },
-    chatRequestOptions?: ChatRequestOptions,
-  ) => void;
-  sendMessage?: any;
 }) {
 
   
@@ -74,169 +49,39 @@ export function MultimodalInput({
   const { width } = useWindowSize();
   
   // Pipecat state management
-  const [pcClient, setPcClient] = useState<PipecatClient | null>(null);
+  const [client, setClient] = useState<any | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isMicActive, setIsMicActive] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  // Initialize Pipecat client
-  const initializePipecatClient = useCallback(() => {
+  const initializeClient = useCallback(() => {
     try {
-      const client = new PipecatClient({
-        transport: new GeminiLiveWebsocketTransport(llmServiceOptions),
-        enableMic: true,
-        enableCam: false,
-        callbacks: {
-          onMessage: (data) => {
-            console.log("[CALLBACK] Message: "); 
-            console.log(data); 
-          },
-          onConnected: (data) => {
-            console.log("[CALLBACK] User connected");
-            setIsConnected(true);
-            setIsConnecting(false);
-            setConnectionError(null);
-            toast.success("Connected to voice assistant");
-            console.log('data ', data)
-          },
-          onDisconnected: (data) => {
-            console.log("[CALLBACK] User disconnected");
-            setIsConnected(false);
-            setIsMicActive(false);
-            setConnectionError(null);
-            console.log('data ', data)
-          },
-          onTransportStateChanged: (state: string) => {
-            console.log("[CALLBACK] State change:", state);
-          },
-          onBotConnected: (data) => {
-            console.log("[CALLBACK] Bot connected");
-            console.log('data ', data)
-          },
-          onBotDisconnected: (data) => {
-            console.log("[CALLBACK] Bot disconnected");
-            console.log('data ', data)
-          },
-          onBotReady: (data) => {
-            console.log("[CALLBACK] Bot ready to chat!");
-            console.log('data ', data)
-            setIsMicActive(true);
-          },
-          onBotStartedSpeaking: (data) => {
-            console.log("[CALLBACK] onBotStartedSpeaking", data)
-          },
-          onBotStoppedSpeaking: (data) => {
-            console.log("[CALLBACK] onBotStoppedSpeaking", data)
-            console.log('client state ', client.state)
-          },
-          onUserStartedSpeaking: (data) => {
-            console.log("[CALLBACK] onUserStartedSpeaking", data)
-          },
-          onUserStoppedSpeaking: (data) => {
-            console.log("[CALLBACK] onUserStoppedSpeaking", data)
-          },
-          onUserTranscript: (data: TranscriptData) => {
-            console.log("[CALLBACK] onUserTranscript", data)
-          },
-          onBotTranscript: (data: BotLLMTextData) => {
-            console.log("[CALLBACK] onBotTranscript", data)
-          },
-          onBotLlmText: (data: BotLLMTextData) => {
-            console.log("[CALLBACK] onBotLlmText", data)
-          },
-          onBotLlmStarted: (data) => {
-            console.log("[CALLBACK] onBotLlmStarted", data)
-          },
-          onBotLlmStopped: (data) => {
-            console.log("[CALLBACK] onBotLlmStopped", data)
-          },
-          onBotTtsText: (data: BotTTSTextData) => {
-            console.log("[CALLBACK] onBotTtsText", data)
-          },
-          onBotTtsStarted: (data) => {
-            console.log("[CALLBACK] onBotTtsStarted", data)
-          },
-          onBotTtsStopped: (data) => {
-            console.log("[CALLBACK] onBotTtsStopped", data)
-          },
-          onServerMessage: (data) => {
-            console.log("[CALLBACK] onServerMessage", data)
-          }
-        },
-      });
-      // Set up event listeners
-      client.on(RTVIEvent.TransportStateChanged, (state) => {
-        console.log("[EVENT] Transport state change:", state);
-      });
-
-      client.on(RTVIEvent.BotReady, () => {
-        console.log("[EVENT] Bot is ready");
-        setIsMicActive(true);
-      });
-
-      client.on(RTVIEvent.Connected, () => {
-        console.log("[EVENT] User connected");
-        setIsConnected(true);
-        setIsConnecting(false);
-      });
-
-      client.on(RTVIEvent.Disconnected, () => {
-        console.log("[EVENT] User disconnected");
-        setIsConnected(false);
-        setIsMicActive(false);
-      });
-
-      client.on(RTVIEvent.Error, (error) => {
-        console.error("[EVENT] Error:", error);
-        setConnectionError(error.message || "Connection error occurred");
-        setIsConnecting(false);
-        toast.error("Voice connection error: " + (error.message || "Unknown error"));
-      });
-
-      client.on(RTVIEvent.BotTtsText, (message: RTVIMessage) => {
-        console.log('bot tts text: ', message)
-      });
-     
-      client.on(RTVIEvent.BotLlmText, (message: RTVIMessage) => {
-        console.log('bot llm text: ', message)
-      });
-
-      // Listen for user speech transcription
-      client.on(RTVIEvent.UserTranscript, (message: RTVIMessage) => {
-        console.log('user transcript: ', message)
-      });
-
-
-      client.on(RTVIEvent.UserStartedSpeaking, (state) => {
-        console.log("[EVENT] User started speaking:", state);
-      });
-      
-      client.on(RTVIEvent.UserStoppedSpeaking, (state) => {
-        console.log("[EVENT] User stopped speaking:", state);
-      });
-
-      setPcClient(client);
+      const client = {
+        connect: () => {},
+        disconnect: () => {},
+        appendToContext: () => {}
+      };
+      setClient(client);
       return client;
     } catch (error) {
-      console.error("Failed to initialize Pipecat client:", error);
+      console.error("Failed to initialize voice client:", error);
       setConnectionError("Failed to initialize voice client");
       toast.error("Failed to initialize voice client");
       return null;
     }
   }, []);
 
-  // Connect to Pipecat
   const connectToVoiceChat = useCallback(async () => {
-    if (!pcClient) return;
+    if (!client) return;
     
     setIsConnecting(true);
     setConnectionError(null);
     
     try {
-      await pcClient.connect();
+      await client.connect();
       // Add initial context message
-      pcClient.appendToContext({ 
+      client.appendToContext({ 
         role: "user", 
         content: 'Hello! I\'m ready to have a voice conversation with you.' 
       });
@@ -246,14 +91,14 @@ export function MultimodalInput({
       setIsConnecting(false);
       toast.error("Failed to connect to voice service");
     }
-  }, [pcClient]);
+  }, [client]);
 
   // Disconnect from Pipecat
   const disconnectFromVoiceChat = useCallback(async () => {
-    if (!pcClient || !isConnected) return;
+    if (!client || !isConnected) return;
     
     try {
-      await pcClient.disconnect();
+      await client.disconnect();
       setIsConnected(false);
       setIsMicActive(false);
       toast.success("Disconnected from voice assistant");
@@ -261,21 +106,18 @@ export function MultimodalInput({
       console.error("Failed to disconnect:", error);
       toast.error("Failed to disconnect properly");
     }
-  }, [pcClient, isConnected]);
+  }, [client, isConnected]);
 
-  // Initialize client on mount
   useEffect(() => {
-    const client = initializePipecatClient();
+    const client = initializeClient();
     
     return () => {
-      // Cleanup on unmount
       if (client && client.disconnect) {
         client.disconnect().catch(console.error);
       }
     };
-  }, [initializePipecatClient]);
+  }, [initializeClient]);
 
-  // Handle voice chat toggle
   const toggleVoiceChat = useCallback(async () => {
     if (isConnected) {
       await disconnectFromVoiceChat();
