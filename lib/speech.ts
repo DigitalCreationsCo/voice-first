@@ -8,6 +8,7 @@ class AudioManager {
   protected gainNode: GainNode | null = null;
   protected destinationNode: MediaStreamAudioDestinationNode | null = null;
   protected currentlyPlayingId: string | null = null;
+  protected ORIGINAL_GAIN_VALUE = 0.8;
 
   async initializeAudioContext() {
     if (!this.audioContext) {
@@ -27,7 +28,7 @@ class AudioManager {
     // Create gain node for volume control
     if (!this.gainNode) {
       this.gainNode = this.audioContext.createGain();
-      this.gainNode.gain.value = 0.8;
+      this.gainNode.gain.value = this.ORIGINAL_GAIN_VALUE;
     }
 
     // Create destination node for capturing playback audio (echo cancellation reference)
@@ -49,6 +50,11 @@ class AudioManager {
       return;
     }
 
+    // Lower mic gain during playback
+    if (this.gainNode) {
+      this.gainNode.gain.setValueAtTime(0.1, this.audioContext.currentTime);
+    }
+
     this.isPlaying = true;
     if (onPlaybackStateChange) {
       onPlaybackStateChange(true, this.currentlyPlayingId);
@@ -60,6 +66,12 @@ class AudioManager {
         this.isPlaying = false;
         const playingId = this.currentlyPlayingId;
         this.currentlyPlayingId = null;
+
+        // Restore mic gain
+        if (this.gainNode) {
+          this.gainNode.gain.setValueAtTime(this.ORIGINAL_GAIN_VALUE, this.audioContext!.currentTime);
+        }
+
         if (onPlaybackStateChange) {
           onPlaybackStateChange(false, null);
         }
@@ -87,6 +99,12 @@ class AudioManager {
         console.error('Audio source error:', error);
         this.isPlaying = false;
         this.currentlyPlayingId = null;
+
+        // Restore mic gain
+        if (this.gainNode) {
+          this.gainNode.gain.setValueAtTime(this.ORIGINAL_GAIN_VALUE, this.audioContext!.currentTime);
+        }
+        
         if (onPlaybackStateChange) {
           onPlaybackStateChange(false, null);
         }
@@ -240,13 +258,6 @@ export class SpeechRecognitionManager extends AudioManager {
   ) {
     if (!this.recognition) await this.initialize();
     
-    // Don't start listening if audio is playing
-    // if (this.isPlaying) {
-    //   console.log('Cannot start listening while audio is playing');
-    //   onError('Cannot start listening while audio is playing');
-    //   return;
-    // }
-
     this.onResult = onResult;
     this.onInterimResult = onInterimResult;
     this.onError = onError;
