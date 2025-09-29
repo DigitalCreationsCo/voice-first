@@ -420,7 +420,6 @@ export function MultimodalInput({
       <VoiceInputButton
       isListening={isListening}
       toggleVoiceInput={toggleVoiceInput}
-      disabled={isLoading || isPlayingAudio} 
       />
 
       <input
