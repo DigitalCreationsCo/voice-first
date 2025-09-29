@@ -201,17 +201,18 @@ export interface UIMessage {
   content: string;
   timestamp: number;
   isAudio: boolean;
-  audioData?: ArrayBuffer;
+  audioData?: Uint8Array;
   isComplete: boolean;
 };
 
-export function buildUIMessage(text: string, role: "user" | "assistant", isAudioInput = false):UIMessage {
+export function buildUIMessage(text: string, role: "user" | "assistant", isAudioInput = false, ):UIMessage {
   return {
     id: `msg-${Date.now()}-user`,
     role: role,
     content: text.trim(),
     timestamp: Date.now(),
     isAudio: isAudioInput,
+    audioData: undefined,
     isComplete: false
   };
 };

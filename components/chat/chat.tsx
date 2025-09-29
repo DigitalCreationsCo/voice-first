@@ -25,6 +25,7 @@ import { SuggestedActions } from "./suggested-actions";
 import { VoiceInputButton } from "./voice-input-button";
 import { Message } from "./message";
 import { useAudioManager } from "@/hooks/use-audio-manager";
+import { PlayIcon, Square, Volume2 } from "lucide-react";
 
 
 export function Chat({
@@ -35,7 +36,7 @@ export function Chat({
   initialMessages: Array<UIMessage>;
 }) {
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<UIMessage[]>([]);
+  const [messages, setMessages] = useState<UIMessage[]>(initialMessages);
   const [isLoading, setIsLoading] = useState(false);
   const [attachments, setAttachments] = useState<Array<any>>([]);
   const [messagesContainerRef, messagesEndRef] = useScrollToBottom<HTMLDivElement>();
@@ -47,6 +48,7 @@ export function Chat({
     transcript,
     interimTranscript,
     synthesizeSpeech,
+    playMessageAudio,
     stopPlayback,
     isPlayingAudio,
     currentlyPlayingId,
@@ -115,16 +117,16 @@ export function Chat({
 
       // Mark message as complete and generate speech
       const finalMessage = buildUIMessage(fullResponse, "assistant");
+      
+      let audioData :Uint8Array;
+      if (fullResponse.trim()) {
+        audioData = await synthesizeSpeech(fullResponse, finalMessage.id);
+      }
+
       setMessages(prev => {
         const withoutIncomplete = prev.filter(m => m.role !== 'assistant' || m.isComplete !== false);
-        return [...withoutIncomplete, { ...finalMessage, isComplete: true }];
+        return [...withoutIncomplete, { ...finalMessage, audioData, isComplete: true }];
       });
-        
-      // trying to generate speech and append ot message afeter text generation,
-      // if it doesn't work, I will move the speech generation before setMessagwes and append audio data
-      if (fullResponse.trim()) {
-        await synthesizeSpeech(fullResponse, finalMessage.id);
-      }
     } catch (error) {
       console.error('LLM Error:', error);
       toast.error('Failed to generate response');
@@ -175,57 +177,55 @@ export function Chat({
           {messages.length === 0 && <Overview />}
 
           {messages.map((message) => (
-            <Message 
-              key={message.id}
-              chatId={id}
-              role={message.role}
-              content={message.content}
-              // toolInvocations={message.toolInvocations}
-              // attachments={message.attachments}
-            />
-            // <div key={message.id} className="w-full max-w-2xl px-4">
-            //   <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            //     <div className={`max-w-[80%] p-3 rounded-lg ${
-            //       message.role === 'user' 
-            //         ? 'bg-blue-500 text-white' 
-            //         : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-            //     }`}>
-            //       <p className="whitespace-pre-wrap">{message.content}</p>
-            //       {message.role === 'assistant' && message.audioData && (
-            //         <div className="flex items-center gap-2 mt-2">
-            //           <Button
-            //             size="sm"
-            //             variant="outline"
-            //             onClick={() => 
-            //               currentlyPlayingId === message.id
-            //                 ? stopAudio()
-            //                 : playAudio(message.id, message.audioData!)
-            //             }
-            //             disabled={isPlayingAudio && currentlyPlayingId !== message.id}
-            //             className="text-xs"
-            //           >
-            //             {currentlyPlayingId === message.id ? (
-            //               <>
-            //                 <Square size={12} className="mr-1" />
-            //                 Stop
-            //               </>
-            //             ) : (
-            //               <>
-            //                 <Volume2 size={12} className="mr-1" />
-            //                 Play
-            //               </>
-            //             )}
-            //           </Button>
-            //         </div>
-            //       )}
-            //       {message.isAudio && (
-            //         <div className="text-xs opacity-70 mt-1">
-            //           🎤 Voice input
-            //         </div>
-            //       )}
-            //     </div>
-            //   </div>
-            // </div>
+            // <Message 
+            //   key={message.id}
+            //   chatId={id}
+            //   role={message.role}
+            //   content={message.content}
+            //   // toolInvocations={message.toolInvocations}
+            //   // attachments={message.attachments}
+            // />
+            <div key={message.id} className="w-full max-w-2xl px-4">
+              <div className={`flex flex-row ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[80%] p-3 rounded-lg ${
+                  message.role === 'user' 
+                    ? 'bg-blue-500 text-white' 
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+                }`}>
+                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  {message.role === 'assistant' && (
+                    <div className="flex justify-end items-center gap-2 mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => 
+                          currentlyPlayingId === message.id
+                            ? stopPlayback()
+                            : playMessageAudio(message.audioData!, message.id)
+                        }
+                        disabled={isPlayingAudio && currentlyPlayingId !== message.id}
+                        className="text-xs"
+                      >
+                        {currentlyPlayingId === message.id ? (
+                          <>
+                            <Square size={12} />
+                          </>
+                        ) : (
+                          <>
+                            <PlayIcon size={12} />
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                  {/* {message.isAudio && (
+                    <div className="text-xs opacity-70 mt-1">
+                      < size={12} />
+                    </div>
+                  )} */}
+                </div>
+              </div>
+            </div>
           ))}
 
           {/* Show interim transcript */}

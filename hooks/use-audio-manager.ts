@@ -1,6 +1,7 @@
 // useAudioManager.ts
 import { useCallback, useRef, useState, useEffect } from 'react';
 import { SpeechRecognitionManager } from '@/lib/speech';
+import { VoiceConfig } from '@google/genai';
 
 interface UseAudioManagerReturn {
   // Speech Recognition
@@ -11,7 +12,8 @@ interface UseAudioManagerReturn {
   interimTranscript: string;
   
   // TTS Playback
-  synthesizeSpeech: (text: string, messageId: string) => Promise<void>;
+  synthesizeSpeech: (text: string, messageId: string) => Promise<Uint8Array>;
+  playMessageAudio: (audioData: any, messageId: string) => void;
   stopPlayback: () => void;
   isPlayingAudio: boolean;
   currentlyPlayingId: string | null;
@@ -108,7 +110,7 @@ export function useAudioManager(): UseAudioManagerReturn {
     }
 
     try {
-      await managerRef.current.synthesizeSpeech(
+      const audioData = await managerRef.current.synthesizeSpeech(
         text,
         messageId,
         (isPlaying, msgId) => {
@@ -116,12 +118,29 @@ export function useAudioManager(): UseAudioManagerReturn {
           setCurrentlyPlayingId(msgId);
         }
       );
+      return audioData;
     } catch (error) {
       console.error('Error synthesizing speech:', error);
       setIsPlayingAudio(false);
       setCurrentlyPlayingId(null);
     }
   }, [isInitialized, isListening, stopListening]);
+
+  const playMessageAudio = useCallback((audioData: any, messageId: any) => {
+    if (!managerRef.current || !isInitialized) {
+      console.error('Audio manager not initialized');
+      return;
+    }
+
+    managerRef.current.playMessageAudio(
+      audioData, 
+      messageId, 
+      (isPlaying, msgId) => {
+        setIsPlayingAudio(isPlaying);
+        setCurrentlyPlayingId(msgId);
+      }
+    );
+  }, [isInitialized])
 
   const stopPlayback = useCallback(() => {
     if (managerRef.current) {
@@ -138,6 +157,7 @@ export function useAudioManager(): UseAudioManagerReturn {
     transcript,
     interimTranscript,
     synthesizeSpeech,
+    playMessageAudio,
     stopPlayback,
     isPlayingAudio,
     currentlyPlayingId,

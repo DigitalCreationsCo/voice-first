@@ -48,7 +48,7 @@ class AudioManager {
     if (!this.audioContext || this.audioQueue.length === 0 || this.isPlaying) {
       return;
     }
-
+    
     this.isPlaying = true;
     if (onPlaybackStateChange) {
       onPlaybackStateChange(true, this.currentlyPlayingId);
@@ -316,6 +316,48 @@ export class SpeechRecognitionManager extends AudioManager {
     this.playQueuedAudio(wrappedCallback);
   }
 
+  playMessageAudio(audioData: Uint8Array, messageId: string, onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void): void {
+    if (!this.audioContext) {
+      console.error('Audio context not initialized');
+      return;
+    }
+
+    console.info('playMessageAudio 1')
+    console.info('audioData ', audioData);
+    
+    this.clearCurrentlyPlayingAudio(onPlaybackStateChange);
+    
+    try {
+      console.info('playMessageAudio 2')
+      const float32Data = convertInt16ToFloat32(audioData);
+      console.info('playMessageAudio 3')
+      
+      if (float32Data.length > 0) {
+        const SAMPLE_RATE = 24000;
+        const CHANNELS = 1;
+        
+        const audioBuffer = this.audioContext.createBuffer(
+          CHANNELS, 
+          float32Data.length, 
+          SAMPLE_RATE
+        );
+        audioBuffer.getChannelData(0).set(float32Data);
+        
+        this.currentlyPlayingId = messageId;
+        this.audioQueue.push(audioBuffer);
+        
+        if (!this.isPlaying) {
+          this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange);
+        }
+      }
+    } catch (error) {
+      console.error('Error in playMessageAudio:', error);
+      if (onPlaybackStateChange) {
+        onPlaybackStateChange(false, null);
+      }
+    }
+  }
+
   stopListening() {
     if (this.recognition) {
       this.recognition.stop();
@@ -341,7 +383,7 @@ export class SpeechRecognitionManager extends AudioManager {
     text: string, 
     messageId: string,
     onPlaybackStateChange?: (isPlaying: boolean, messageId: string | null) => void
-  ): Promise<void> {
+  ): Promise<Uint8Array> {
     try {
       if (!this.audioContext) {
         await this.initializeAudioContext();
@@ -378,12 +420,16 @@ export class SpeechRecognitionManager extends AudioManager {
       const SAMPLE_RATE = 24000;
       const CHANNELS = 1;
       let remainingBytes = new Uint8Array(0);
+      const allAudioChunks: Uint8Array[] = []; // Collect all audio chunks
 
       while (true) {
         const { done, value } = await reader.read();
 
         if (value && value.byteLength > 0) {
           totalBytesReceived += value.byteLength;
+          
+          // Store the raw audio chunk
+          allAudioChunks.push(value);
           
           // Combine with any remaining bytes from previous chunk
           const combinedBytes = new Uint8Array(remainingBytes.length + value.length);
@@ -452,6 +498,18 @@ export class SpeechRecognitionManager extends AudioManager {
           break;
         }
       }
+
+      // Combine all audio chunks into a single Uint8Array
+      const totalLength = allAudioChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+      const completeAudioData = new Uint8Array(totalLength);
+      let offset = 0;
+      
+      for (const chunk of allAudioChunks) {
+        completeAudioData.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      return completeAudioData;
     } catch (error) {
       console.error('Error in synthesizeSpeech:', error);
       this.isPlaying = false;
@@ -469,5 +527,15 @@ export class SpeechRecognitionManager extends AudioManager {
 
   protected getIsListening() {
     return this.isListening;
+  }
+
+  /**
+   * Clear currently playing audio and stop all playback
+   */
+  clearCurrentlyPlayingAudio(onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void) {
+    this.stopAudio();
+
+    console.log('clearCurrentlyPlayingAudio onPlaybackStateChange', onPlaybackStateChange);
+    onPlaybackStateChange(false, null);
   }
 }
