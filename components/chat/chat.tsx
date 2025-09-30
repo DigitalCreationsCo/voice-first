@@ -101,13 +101,15 @@ export function Chat({
       
       let fullResponse = '';
       let ttsBuffer = '';
-      let ttsStarted = false;
       let messageId = generateMessageId();
-      let fullAudioBytes = new Uint8Array(0); // new for each message
+      let pendingTTSCalls = 0; // Track outstanding TTS calls
+      let fullAudioBytes = new Uint8Array(0);
 
       for await (const textChunk of elementStream) {
         fullResponse += textChunk;
+        ttsBuffer += textChunk;
 
+        // Update UI with streaming text
         setMessages(prev => {
           const last = prev[prev.length - 1];
           if (last?.role === 'assistant' && !last.isComplete) {
@@ -118,36 +120,52 @@ export function Chat({
             buildUIMessage({ id: messageId, role: 'assistant', content: fullResponse, isComplete: false })];
         });
 
-        ttsBuffer += textChunk;
-
         if (ttsBuffer.length >= CHUNK_CHAR_THRESHOLD || CHUNK_END_PUNCT_RE.test(ttsBuffer)) {
           const segment = ttsBuffer;
           ttsBuffer = '';
-          ttsStarted = true;
+          pendingTTSCalls++;
 
-          synthesizeSpeechStream(segment, messageId, (messageId, audioData) => {
-            // merge into global fullAudioBytes
+          synthesizeSpeechStream(segment, messageId, (msgId, audioData) => {
+            // merge audio chunks
             const merged = new Uint8Array(fullAudioBytes.length + audioData.length);
             merged.set(fullAudioBytes);
             merged.set(audioData, fullAudioBytes.length);
             fullAudioBytes = merged;
-          })
+
+            pendingTTSCalls--;
+
+            // Only update message when all TTS calls complete
+            if (pendingTTSCalls === 0) {
+              const finalMessage = buildUIMessage({ 
+                id: messageId,
+                role: "assistant", 
+                content: fullResponse, 
+                audioData: fullAudioBytes,
+                isComplete: true 
+              });
+              
+              setMessages(prev => {
+                const withoutIncomplete = prev.filter(m => m.id !== messageId);
+                return [...withoutIncomplete, finalMessage];
+              });
+            }
+          });
         }
       }
 
       if (ttsBuffer.trim()) {
         const segment = ttsBuffer;
-        ttsBuffer = '';
+        pendingTTSCalls++;
   
-        synthesizeSpeechStream(
-          segment, 
-          messageId, 
-          (messageId, partialAudioData) => {
-            const merged = new Uint8Array(fullAudioBytes.length + partialAudioData.length);
-            merged.set(fullAudioBytes);
-            merged.set(partialAudioData, fullAudioBytes.length);
-            fullAudioBytes = merged;
+        synthesizeSpeechStream(segment, messageId, (msgId, partialAudioData) => {
+          const merged = new Uint8Array(fullAudioBytes.length + partialAudioData.length);
+          merged.set(fullAudioBytes);
+          merged.set(partialAudioData, fullAudioBytes.length);
+          fullAudioBytes = merged;
 
+          pendingTTSCalls--;
+
+          if (pendingTTSCalls === 0) {
             const finalMessage = buildUIMessage({ 
               id: messageId,
               role: "assistant", 
@@ -161,7 +179,7 @@ export function Chat({
               return [...withoutIncomplete, finalMessage];
             });
           }
-        );
+        });
       }
 
       return fullResponse;

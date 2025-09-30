@@ -54,20 +54,37 @@ class AudioManager {
     const buffer = this.audioQueue.shift();
     if (!buffer) {
       this.isPlaying = false;
+      this.currentlyPlayingId = null;
       onPlaybackStateChange?.(false, this.currentlyPlayingId);
       return;
     }
 
     const source = this.audioContext!.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.audioContext!.destination);
+
+    // Connect through gain node for consistent volume
+    source.connect(this.outputGainNode!);
+    
+    const currentTime = this.audioContext!.currentTime;
+
+    // Schedule seamlessly to avoid gaps
+    if (this.nextPlayTime < currentTime) {
+      this.nextPlayTime = currentTime;
+    }
+    
+    source.start(this.nextPlayTime);
+    this.nextPlayTime += buffer.duration;
+    this.currentSource = source;
 
     source.onended = () => {
-      this.playNextBuffer(); // recursively play next buffer
+      this.currentSource = null;
+      this.playNextBuffer(onPlaybackStateChange); // Recursively play next
     };
 
-    onPlaybackStateChange?.(true, this.currentlyPlayingId);
-    source.start();
+    if (!this.isPlaying) {
+      this.isPlaying = true;
+      onPlaybackStateChange?.(true, this.currentlyPlayingId);
+    }
   };
 
   protected playQueuedAudioWithReduceInputGain(
@@ -544,7 +561,7 @@ export class SpeechRecognitionManager extends AudioManager {
         });
 
         if (!res.ok || !res.body) {
-          console.warn('Partial TTS returned no body or failed', res.status);
+          console.warn('Partial TTS failed', res.status);
           return;
         }
 
@@ -552,80 +569,72 @@ export class SpeechRecognitionManager extends AudioManager {
         const SAMPLE_RATE = 24000;
         const CHANNELS = 1;
 
-        // NEW: accumulate full audio data here
         let allBytes = new Uint8Array(0);
-
         let remainingBytes = new Uint8Array(0);
-
-        // When the first chunk arrives we should ramp/stop fallback
-        let firstChunkArrived = false;
 
         while (true) {
           const { done, value } = await reader.read();
+          
           if (value && value.byteLength > 0) {
 
-            // append to full audio accumulator
+            // Accumulate complete audio
             const mergedAll = new Uint8Array(allBytes.length + value.length);
             mergedAll.set(allBytes);
             mergedAll.set(value, allBytes.length);
             allBytes = mergedAll;
-            firstChunkArrived = true;
             
-            // append streaming bytes as you already do
+            // Process for streaming playback
             const combined = new Uint8Array(remainingBytes.length + value.length);
             combined.set(remainingBytes);
             combined.set(value, remainingBytes.length);
 
             const completeBytes = combined.length - (combined.length % 2);
+
             if (completeBytes >= 2) {
               const audioData = combined.subarray(0, completeBytes);
               const float32Data = convertInt16ToFloat32(audioData);
+
               if (float32Data.length > 0) {
-                try {
-                  const audioBuffer = this.audioContext!.createBuffer(
-                    CHANNELS,
-                    float32Data.length,
-                    SAMPLE_RATE
-                  );
-                  audioBuffer.getChannelData(0).set(float32Data);
-                  this.audioQueue.push(audioBuffer);
-                } catch (err) {
-                  console.error('enqueue buffer error', err);
-                }
+                const audioBuffer = this.audioContext!.createBuffer(
+                  CHANNELS,
+                  float32Data.length,
+                  SAMPLE_RATE
+                );
+                audioBuffer.getChannelData(0).set(float32Data);
+                this.audioQueue.push(audioBuffer);
               }
+
               remainingBytes = combined.subarray(completeBytes);
             } else {
               remainingBytes = combined;
             }
 
+            // Start playback when we have buffers
             if (!this.isPlaying && this.audioQueue.length > 0) {
-              this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange || undefined);
+              this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange);
             }
           }
 
           if (done) {
-            // flush final remaining bytes
+            // Flush remaining bytes
             if (remainingBytes.length >= 2) {
               const float32Data = convertInt16ToFloat32(remainingBytes);
               if (float32Data.length > 0) {
-                try {
-                  const audioBuffer = this.audioContext!.createBuffer(
-                    CHANNELS,
-                    float32Data.length,
-                    SAMPLE_RATE
-                  );
-                  audioBuffer.getChannelData(0).set(float32Data);
-                  this.audioQueue.push(audioBuffer);
-                } catch (err) {
-                  console.error('final enqueue error', err);
-                }
+                const audioBuffer = this.audioContext!.createBuffer(
+                  CHANNELS,
+                  float32Data.length,
+                  SAMPLE_RATE
+                );
+                audioBuffer.getChannelData(0).set(float32Data);
+                this.audioQueue.push(audioBuffer);
               }
             }
-            // ensure playback started if still not playing
+
             if (!this.isPlaying && this.audioQueue.length > 0) {
-              this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange || undefined);
+              this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange);
             }
 
+            // Call completion callback ONCE with full audio
             if (onCompleteAudio) {
               onCompleteAudio(messageId, allBytes);
             }
@@ -634,10 +643,6 @@ export class SpeechRecognitionManager extends AudioManager {
         }
       } catch (err) {
         console.error('synthesizeSpeechStream error', err);
-      } finally {
-        // let UI know we finished this segment
-        this.currentlyPlayingId = null;
-        onPlaybackStateChange?.(false, null);
       }
     })();
   };
