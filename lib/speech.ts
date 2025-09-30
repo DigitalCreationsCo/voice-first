@@ -342,16 +342,10 @@ export class SpeechRecognitionManager extends AudioManager {
       return;
     }
 
-    console.info('playMessageAudio 1')
-    console.info('audioData ', audioData);
-    
     this.clearCurrentlyPlayingAudio(onPlaybackStateChange);
     
     try {
-      console.info('playMessageAudio 2')
       const float32Data = convertInt16ToFloat32(audioData);
-      console.info('playMessageAudio 3')
-      
       if (float32Data.length > 0) {
         const SAMPLE_RATE = 24000;
         const CHANNELS = 1;
@@ -714,7 +708,7 @@ export class SpeechRecognitionManager extends AudioManager {
   clearCurrentlyPlayingAudio(onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void) {
     this.stopAudio();
 
-    console.log('clearCurrentlyPlayingAudio onPlaybackStateChange', onPlaybackStateChange);
+    console.log('Stopping all audio playback');
     onPlaybackStateChange(false, null);
   }
 }
