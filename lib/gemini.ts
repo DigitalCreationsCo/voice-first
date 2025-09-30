@@ -4,7 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 
 export const ttsClient = new GoogleGenAI({
   apiKey: process.env.NEXT_PUBLIC_GOOGLE_GENERATIVE_AI_API_KEY,
-});
+})
 
 const genAIClient = createGoogleGenerativeAI({
   apiKey: process.env.NEXT_PUBLIC_GOOGLE_GENERATIVE_AI_API_KEY
