@@ -118,18 +118,13 @@ export function Chat({
             buildUIMessage({ id: messageId, role: 'assistant', content: fullResponse, isComplete: false })];
         });
 
-        if (!ttsStarted) {
-          ttsStarted = true;
-          const firstChunk = textChunk.slice(0, 40);
-          playFallbackSpeech(firstChunk, messageId);
-        }
-
         ttsBuffer += textChunk;
 
         if (ttsBuffer.length >= CHUNK_CHAR_THRESHOLD || CHUNK_END_PUNCT_RE.test(ttsBuffer)) {
           const ttsSegment = ttsBuffer;
           ttsBuffer = '';
           lastSegment = ttsSegment; // keep reference for final onComplete
+          ttsStarted = true;
 
           synthesizeSpeechStream(ttsSegment, messageId)
         }

@@ -199,22 +199,12 @@ export class SpeechRecognitionManager extends AudioManager {
       }
 
       if (finalTranscript && this.onResult) {
-
-        // Correct the transcription before passing to callback
-        const correction = await this.correctTranscription(
-          finalTranscript
-        );
-        
-        console.log('Raw:', finalTranscript);
-        console.log('Corrected:', correction.corrected);
-        console.log('Changes:', correction.changes);
-
         if (this.interimDebounceTimer) {
           clearTimeout(this.interimDebounceTimer);
           this.interimDebounceTimer = null;
         }
 
-        this.onResult(correction.corrected);
+        this.onResult(finalTranscript);
       }
       
       if (interimTranscript && this.onInterimResult) {
