@@ -1,5 +1,5 @@
 // /api/correct-speech/route.ts - Backend API
-import { geminiFlashModel15SM } from '@/lib/text-models';
+import { geminiFlashModel15SM } from '@/lib/google';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 

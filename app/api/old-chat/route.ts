@@ -1,7 +1,7 @@
 import { convertToCoreMessages, UIMessage as Message, streamText } from "ai";
 import { z } from "zod";
 
-import { geminiProModel15LM } from "@/lib/text-models";
+import { geminiProModel15LM } from "@/lib/google";
 import {
   generateReservationPrice,
   generateSampleFlightSearchResults,

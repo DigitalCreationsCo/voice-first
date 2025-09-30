@@ -19,7 +19,7 @@ import { PreviewAttachment } from "./preview-attachment";
 import useWindowSize from "../../hooks/use-window-size";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
-import { geminiFlashModel15SM } from "@/lib/text-models";
+import { geminiFlashModel15SM } from "@/lib/google";
 import { buildUIMessage, generateMessageId, UIMessage } from "@/lib/utils";
 import { SuggestedActions } from "./suggested-actions";
 import { VoiceInputButton } from "./voice-input-button";
