@@ -103,7 +103,7 @@ export function Chat({
       let ttsBuffer = '';
       let ttsStarted = false;
       let messageId = generateMessageId();
-      let lastSegment: string | null = null;
+      let fullAudioBytes = new Uint8Array(0); // new for each message
 
       for await (const textChunk of elementStream) {
         fullResponse += textChunk;
@@ -121,30 +121,38 @@ export function Chat({
         ttsBuffer += textChunk;
 
         if (ttsBuffer.length >= CHUNK_CHAR_THRESHOLD || CHUNK_END_PUNCT_RE.test(ttsBuffer)) {
-          const ttsSegment = ttsBuffer;
+          const segment = ttsBuffer;
           ttsBuffer = '';
-          lastSegment = ttsSegment; // keep reference for final onComplete
           ttsStarted = true;
 
-          synthesizeSpeechStream(ttsSegment, messageId)
+          synthesizeSpeechStream(segment, messageId, (messageId, audioData) => {
+            // merge into global fullAudioBytes
+            const merged = new Uint8Array(fullAudioBytes.length + audioData.length);
+            merged.set(fullAudioBytes);
+            merged.set(audioData, fullAudioBytes.length);
+            fullAudioBytes = merged;
+          })
         }
       }
 
       if (ttsBuffer.trim()) {
-        lastSegment = ttsBuffer;
+        const segment = ttsBuffer;
         ttsBuffer = '';
-      }
-
-      if (lastSegment) {
+  
         synthesizeSpeechStream(
-          lastSegment, 
+          segment, 
           messageId, 
-          (messageId, audioData) => {
+          (messageId, partialAudioData) => {
+            const merged = new Uint8Array(fullAudioBytes.length + partialAudioData.length);
+            merged.set(fullAudioBytes);
+            merged.set(partialAudioData, fullAudioBytes.length);
+            fullAudioBytes = merged;
+
             const finalMessage = buildUIMessage({ 
               id: messageId,
-              content: fullResponse, 
               role: "assistant", 
-              audioData,
+              content: fullResponse, 
+              audioData: fullAudioBytes,
               isComplete: true 
             });
             

@@ -4,8 +4,14 @@ class AudioManager {
   private currentSource: AudioBufferSourceNode | null = null;
   protected isPlaying: boolean = false;
   protected audioQueue: AudioBuffer[] = [];
+  private fallbackUtter: SpeechSynthesisUtterance | null = null;
   private nextPlayTime: number = 0;
-  private gainNode: GainNode | null = null;
+
+  private outputGainNode: GainNode | null = null;
+  protected inputGainNode: GainNode | null = null;
+  protected ORIGINAL_GAIN_VALUE = 0.8;
+  protected REDUCED_GAIN_VALUE = 0.2;
+
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
   protected currentlyPlayingId: string | null = null;
 
@@ -25,77 +31,125 @@ class AudioManager {
     }
 
     // Create gain node for volume control
-    if (!this.gainNode) {
-      this.gainNode = this.audioContext.createGain();
-      this.gainNode.gain.value = 1;
+    if (!this.outputGainNode) {
+      this.outputGainNode = this.audioContext.createGain();
+      this.outputGainNode.gain.value = 1;
     }
 
     // Create destination node for capturing playback audio (echo cancellation reference)
     if (!this.destinationNode) {
       this.destinationNode = this.audioContext.createMediaStreamDestination();
-      this.gainNode.connect(this.destinationNode);
+      this.outputGainNode.connect(this.destinationNode);
     }
 
     // Also connect to speakers
-    this.gainNode.connect(this.audioContext.destination);
+    this.outputGainNode.connect(this.audioContext.destination);
     
     this.nextPlayTime = this.audioContext.currentTime;
     
     return this.destinationNode.stream;
   }
 
-  protected playQueuedAudio(onPlaybackStateChange?: (isPlaying: boolean, messageId: string | null) => void) {
-    if (!this.audioContext || this.audioQueue.length === 0 || this.isPlaying) {
+  private playNextBuffer(onPlaybackStateChange?: (isPlaying: boolean, messageId: string | null) => void) {
+    const buffer = this.audioQueue.shift();
+    if (!buffer) {
+      this.isPlaying = false;
+      onPlaybackStateChange?.(false, this.currentlyPlayingId);
       return;
     }
-    
-    this.isPlaying = true;
-    if (onPlaybackStateChange) {
-      onPlaybackStateChange(true, this.currentlyPlayingId);
-    }
 
-    const playNext = () => {
-      const buffer = this.audioQueue.shift();
-      if (!buffer) {
-        this.isPlaying = false;
-        const playingId = this.currentlyPlayingId;
-        this.currentlyPlayingId = null;
+    const source = this.audioContext!.createBufferSource();
+    source.buffer = buffer;
+    source.connect(this.audioContext!.destination);
 
-        if (onPlaybackStateChange) {
-          onPlaybackStateChange(false, null);
-        }
-        return;
-      }
-
-      const source = this.audioContext!.createBufferSource();
-      source.buffer = buffer;
-      source.connect(this.gainNode!);
-
-      const currentTime = this.audioContext!.currentTime;
-      if (this.nextPlayTime < currentTime) {
-        this.nextPlayTime = currentTime;
-      }
-
-      source.start(this.nextPlayTime);
-      this.nextPlayTime += buffer.duration;
-      this.currentSource = source;
-
-      source.onended = () => {
-        playNext();
-      };
-      
-      source.onerror = (error) => {
-        console.error('Audio source error:', error);
-        this.isPlaying = false;
-        this.currentlyPlayingId = null;
-
-        if (onPlaybackStateChange) {
-          onPlaybackStateChange(false, null);
-        }
-      };
+    source.onended = () => {
+      this.playNextBuffer(); // recursively play next buffer
     };
 
-    playNext();
+    onPlaybackStateChange?.(true, this.currentlyPlayingId);
+    source.start();
+  };
+
+  protected playQueuedAudioWithReduceInputGain(
+    onPlaybackStateChange?: (isPlaying: boolean, messageId: string | null) => void
+  ): void {
+    const reduceInputGain = (active: boolean) => {
+      if(!this.inputGainNode || !this.audioContext) 
+        return;
+
+      const now = this.audioContext.currentTime;
+      this.inputGainNode.gain.cancelScheduledValues(now);
+      this.inputGainNode.gain.setTargetAtTime(
+        active ? this.REDUCED_GAIN_VALUE : this.ORIGINAL_GAIN_VALUE,
+        now,
+        0.05
+      );
+    };
+
+    const wrappedCallback = (isPlaying: boolean, messageId: string | null) => {
+      reduceInputGain(isPlaying);
+      if (onPlaybackStateChange) {
+        onPlaybackStateChange(isPlaying, messageId);
+      }
+    };
+
+    this.playNextBuffer(wrappedCallback);
+  }
+  
+  playMessageAudio(audioData: Uint8Array, messageId: string, onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void): void {
+    if (!this.audioContext) {
+      console.error('Audio context not initialized');
+      return;
+    }
+
+    this.clearCurrentlyPlayingAudio(onPlaybackStateChange);
+    
+    try {
+      const float32Data = convertInt16ToFloat32(audioData);
+      if (float32Data.length > 0) {
+        const SAMPLE_RATE = 24000;
+        const CHANNELS = 1;
+        
+        const audioBuffer = this.audioContext.createBuffer(
+          CHANNELS, 
+          float32Data.length, 
+          SAMPLE_RATE
+        );
+        audioBuffer.getChannelData(0).set(float32Data);
+        
+        this.currentlyPlayingId = messageId;
+        this.audioQueue.push(audioBuffer);
+        
+        if (!this.isPlaying) {
+          this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange);
+        }
+      }
+    } catch (error) {
+      console.error('Error in playMessageAudio:', error);
+      if (onPlaybackStateChange) {
+        onPlaybackStateChange(false, null);
+      }
+    }
+  }
+
+  /**
+   * Convenience: small fast fallback via Web Speech API for perceptual latency.
+   * Use only for the very first few words; cancel when high-quality audio arrives.
+   */
+  playFallbackSpeech(text: string) {
+    try {
+      if (!('speechSynthesis' in window)) return;
+      // cancel any existing fallback
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      // small volume and rate adjustments can improve perceived velocity
+      u.rate = 1.05;
+      u.pitch = 1.0;
+      window.speechSynthesis.speak(u);
+      this.fallbackUtter = u;
+    } catch (e) {
+      // ignore
+    }
   }
 
   stopAudio() {
@@ -132,6 +186,16 @@ class AudioManager {
     return this.destinationNode?.stream || null;
   }
 
+  /**
+   * Clear currently playing audio and stop all playback
+   */
+  clearCurrentlyPlayingAudio(onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void) {
+    this.stopAudio();
+
+    console.log('Stopping all audio playback');
+    onPlaybackStateChange(false, null);
+  }
+
   async destroy() {
     this.stopAudio();
     if (this.audioContext) {
@@ -162,13 +226,9 @@ export class SpeechRecognitionManager extends AudioManager {
   private onPlaybackStateChange: ((isPlaying: boolean, messageId: string | null) => void) | null = null;
   private interimDebounceTimer: NodeJS.Timeout | null = null;
   private interimDebounceDelay: number = 4000;
-  private fallbackUtter: SpeechSynthesisUtterance | null = null;
 
   private mediaStream: MediaStream | null = null;
   private audioTracks: MediaStreamTrack[] = [];
-  private inputGainNode: GainNode | null = null;
-  private ORIGINAL_GAIN_VALUE = 0.8;
-  private REDUCED_GAIN_VALUE = 0.2;
 
   async initialize() {
     // Initialize audio context first
@@ -310,69 +370,8 @@ export class SpeechRecognitionManager extends AudioManager {
     this.isListening = false;
   }
 
-  protected playQueuedAudioWithReduceInputGain(
-    onPlaybackStateChange?: (isPlaying: boolean, messageId: string | null) => void
-  ): void {
-    const reduceInputGain = (active: boolean) => {
-      if(!this.inputGainNode || !this.audioContext) 
-        return;
-
-      const now = this.audioContext.currentTime;
-      this.inputGainNode.gain.cancelScheduledValues(now);
-      this.inputGainNode.gain.setTargetAtTime(
-        active ? this.REDUCED_GAIN_VALUE : this.ORIGINAL_GAIN_VALUE,
-        now,
-        0.05
-      );
-    };
-
-    const wrappedCallback = (isPlaying: boolean, messageId: string | null) => {
-      reduceInputGain(isPlaying);
-      if (onPlaybackStateChange) {
-        onPlaybackStateChange(isPlaying, messageId);
-      }
-    };
-
-    this.playQueuedAudio(wrappedCallback);
-  }
-
-  playMessageAudio(audioData: Uint8Array, messageId: string, onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void): void {
-    if (!this.audioContext) {
-      console.error('Audio context not initialized');
-      return;
-    }
-
-    this.clearCurrentlyPlayingAudio(onPlaybackStateChange);
-    
-    try {
-      const float32Data = convertInt16ToFloat32(audioData);
-      if (float32Data.length > 0) {
-        const SAMPLE_RATE = 24000;
-        const CHANNELS = 1;
-        
-        const audioBuffer = this.audioContext.createBuffer(
-          CHANNELS, 
-          float32Data.length, 
-          SAMPLE_RATE
-        );
-        audioBuffer.getChannelData(0).set(float32Data);
-        
-        this.currentlyPlayingId = messageId;
-        this.audioQueue.push(audioBuffer);
-        
-        if (!this.isPlaying) {
-          this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange);
-        }
-      }
-    } catch (error) {
-      console.error('Error in playMessageAudio:', error);
-      if (onPlaybackStateChange) {
-        onPlaybackStateChange(false, null);
-      }
-    }
-  }
-
   /**
+   * Deprecated - do not use
    * Synthesize speech from text and stream audio playback
    */
   async synthesizeSpeech(
@@ -570,13 +569,8 @@ export class SpeechRecognitionManager extends AudioManager {
             mergedAll.set(allBytes);
             mergedAll.set(value, allBytes.length);
             allBytes = mergedAll;
-
-            if (!firstChunkArrived) {
-              firstChunkArrived = true;
-              // stop the cheap fallback immediately (replace with high-quality audio)
-              try { window.speechSynthesis.cancel(); } catch (e) {}
-            }
-
+            firstChunkArrived = true;
+            
             // append streaming bytes as you already do
             const combined = new Uint8Array(remainingBytes.length + value.length);
             combined.set(remainingBytes);
@@ -673,26 +667,6 @@ export class SpeechRecognitionManager extends AudioManager {
       };
     }
   }
-
-   /**
-   * Convenience: small fast fallback via Web Speech API for perceptual latency.
-   * Use only for the very first few words; cancel when high-quality audio arrives.
-   */
-   playFallbackSpeech(text: string) {
-    try {
-      if (!('speechSynthesis' in window)) return;
-      // cancel any existing fallback
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      // small volume and rate adjustments can improve perceived velocity
-      u.rate = 1.05;
-      u.pitch = 1.0;
-      window.speechSynthesis.speak(u);
-      this.fallbackUtter = u;
-    } catch (e) {
-      // ignore
-    }
-  }
   
   protected setInterimResultDelay(delayMs: number) {
     this.interimDebounceDelay = delayMs;
@@ -700,15 +674,5 @@ export class SpeechRecognitionManager extends AudioManager {
 
   protected getIsListening() {
     return this.isListening;
-  }
-
-  /**
-   * Clear currently playing audio and stop all playback
-   */
-  clearCurrentlyPlayingAudio(onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void) {
-    this.stopAudio();
-
-    console.log('Stopping all audio playback');
-    onPlaybackStateChange(false, null);
   }
 }
