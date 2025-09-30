@@ -19,13 +19,13 @@ import { PreviewAttachment } from "./preview-attachment";
 import useWindowSize from "../../hooks/use-window-size";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
-import { geminiFlashModel15SM } from "@/lib/google";
 import { buildUIMessage, generateMessageId, UIMessage } from "@/lib/utils";
 import { SuggestedActions } from "./suggested-actions";
 import { VoiceInputButton } from "./voice-input-button";
 import { Message } from "./message";
 import { useAudioManager } from "@/hooks/use-audio-manager";
 import { PlayIcon, Square, Volume2 } from "lucide-react";
+import gemini from "@/lib/gemini";
 
 
 export function Chat({
@@ -93,7 +93,7 @@ export function Chat({
 
       const { elementStream } = streamObject({
         maxOutputTokens: 1000,
-        model: geminiFlashModel15SM,
+        model: gemini.flash2Lite,
         output: 'array',
         schema: z.string(),
         prompt: "You are a helpful AI assistant. Respond naturally and conversationally. Keep responses concise but engaging. " + userMessage,
@@ -102,9 +102,52 @@ export function Chat({
       let fullResponse = '';
       let ttsBuffer = '';
       let messageId = generateMessageId();
-      let pendingTTSCalls = 0; // Track outstanding TTS calls
       let fullAudioBytes = new Uint8Array(0);
+      
+      const ttsQueue: Array<{ segment: string; index: number }> = [];
+      let segmentIndex = 0;
+      let processingSegment = false;
 
+      const processTTSQueue = async () => {
+        if (processingSegment || ttsQueue.length === 0) return;
+        
+        processingSegment = true;
+        const { segment, index } = ttsQueue.shift()!;
+        
+        // Await each segment sequentially
+        await new Promise<void>((resolve) => {
+          synthesizeSpeechStream(segment, messageId, (msgId, audioData) => {
+            const merged = new Uint8Array(fullAudioBytes.length + audioData.length);
+            merged.set(fullAudioBytes);
+            merged.set(audioData, fullAudioBytes.length);
+            fullAudioBytes = merged;
+            resolve();
+          });
+        });
+        
+        processingSegment = false;
+        
+        // Process next in queue
+        if (ttsQueue.length > 0) {
+          processTTSQueue();
+        } else {
+          // All done - update final message
+          const finalMessage = buildUIMessage({ 
+            id: messageId,
+            role: "assistant", 
+            content: fullResponse, 
+            audioData: fullAudioBytes,
+            isComplete: true 
+          });
+          
+          setMessages(prev => {
+            const withoutIncomplete = prev.filter(m => m.id !== messageId);
+            return [...withoutIncomplete, finalMessage];
+          });
+        }
+      };
+
+      
       for await (const textChunk of elementStream) {
         fullResponse += textChunk;
         ttsBuffer += textChunk;
@@ -123,63 +166,15 @@ export function Chat({
         if (ttsBuffer.length >= CHUNK_CHAR_THRESHOLD || CHUNK_END_PUNCT_RE.test(ttsBuffer)) {
           const segment = ttsBuffer;
           ttsBuffer = '';
-          pendingTTSCalls++;
 
-          synthesizeSpeechStream(segment, messageId, (msgId, audioData) => {
-            // merge audio chunks
-            const merged = new Uint8Array(fullAudioBytes.length + audioData.length);
-            merged.set(fullAudioBytes);
-            merged.set(audioData, fullAudioBytes.length);
-            fullAudioBytes = merged;
-
-            pendingTTSCalls--;
-
-            // Only update message when all TTS calls complete
-            if (pendingTTSCalls === 0) {
-              const finalMessage = buildUIMessage({ 
-                id: messageId,
-                role: "assistant", 
-                content: fullResponse, 
-                audioData: fullAudioBytes,
-                isComplete: true 
-              });
-              
-              setMessages(prev => {
-                const withoutIncomplete = prev.filter(m => m.id !== messageId);
-                return [...withoutIncomplete, finalMessage];
-              });
-            }
-          });
+          ttsQueue.push({ segment, index: segmentIndex++ });
+          processTTSQueue(); // Start processing if not already running
         }
       }
 
       if (ttsBuffer.trim()) {
-        const segment = ttsBuffer;
-        pendingTTSCalls++;
-  
-        synthesizeSpeechStream(segment, messageId, (msgId, partialAudioData) => {
-          const merged = new Uint8Array(fullAudioBytes.length + partialAudioData.length);
-          merged.set(fullAudioBytes);
-          merged.set(partialAudioData, fullAudioBytes.length);
-          fullAudioBytes = merged;
-
-          pendingTTSCalls--;
-
-          if (pendingTTSCalls === 0) {
-            const finalMessage = buildUIMessage({ 
-              id: messageId,
-              role: "assistant", 
-              content: fullResponse, 
-              audioData: fullAudioBytes,
-              isComplete: true 
-            });
-            
-            setMessages(prev => {
-              const withoutIncomplete = prev.filter(m => m.role !== 'assistant' || m.isComplete !== false);
-              return [...withoutIncomplete, finalMessage];
-            });
-          }
-        });
+        ttsQueue.push({ segment: ttsBuffer, index: segmentIndex++ });
+        processTTSQueue();
       }
 
       return fullResponse;

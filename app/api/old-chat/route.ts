@@ -1,7 +1,6 @@
 import { convertToCoreMessages, UIMessage as Message, streamText } from "ai";
 import { z } from "zod";
 
-import { geminiProModel15LM } from "@/lib/google";
 import {
   generateReservationPrice,
   generateSampleFlightSearchResults,
@@ -17,6 +16,7 @@ import {
 } from "@/db/queries";
 import { generateUUID } from "@/lib/utils";
 import { auth } from "auth"
+import gemini from "@/lib/gemini";
 
 export async function POST(request: Request, response: Response) {
   const { id, messages }: { id: string; messages: Array<Message> } =
@@ -32,9 +32,8 @@ export async function POST(request: Request, response: Response) {
     (message) => message.content.length > 0,
   );
 
-  const model = geminiProModel15LM
-  const result = await streamText({
-    model: model,
+  const result = streamText({
+    model: gemini.flash25,
     system: `\n
         - you help users book flights!
         - keep your responses limited to a sentence.

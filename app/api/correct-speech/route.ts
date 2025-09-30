@@ -1,5 +1,5 @@
 // /api/correct-speech/route.ts - Backend API
-import { geminiFlashModel15SM } from '@/lib/google';
+import gemini from '@/lib/gemini';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 
@@ -7,7 +7,7 @@ export async function POST(req: Request) {
   const { transcript, messages } = await req.json();
   
   const { object } = await generateObject({
-    model: geminiFlashModel15SM,
+    model: gemini.flash2Lite,
     schema: z.object({
       corrected: z.string(),
       confidence: z.number().min(0).max(1),

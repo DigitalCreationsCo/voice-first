@@ -129,7 +129,7 @@ export function useAudioManager(): UseAudioManagerReturn {
       setIsPlayingAudio(false);
       setCurrentlyPlayingId(null);
     }
-  }, [isInitialized, isListening, stopListening]);
+  }, [isInitialized]);
   
   const synthesizeSpeechStream: UseAudioManagerReturn['synthesizeSpeechStream'] = useCallback((
     text,
@@ -141,23 +141,26 @@ export function useAudioManager(): UseAudioManagerReturn {
       return;
     }
 
+    // Generate sequence from timestamp for ordering
+    const sequenceNumber = Date.now();
+
     try {
-      const audioData = managerRef.current.synthesizeSpeechStream(
+      managerRef.current.synthesizeSpeechStream(
         text,
         messageId,
+        sequenceNumber,
         (isPlaying, msgId) => {
           setIsPlayingAudio(isPlaying);
           setCurrentlyPlayingId(msgId);
         },
         onCompleteAudio
       );
-      return audioData;
     } catch (error) {
       console.error('Error synthesizing speech:', error);
       setIsPlayingAudio(false);
       setCurrentlyPlayingId(null);
     }
-  }, [isInitialized, isListening, stopListening]);
+  }, [isInitialized]);
 
   const playMessageAudio = useCallback((audioData: any, messageId: any) => {
     if (!managerRef.current || !isInitialized) {

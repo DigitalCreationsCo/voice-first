@@ -243,6 +243,7 @@ export class SpeechRecognitionManager extends AudioManager {
   private onPlaybackStateChange: ((isPlaying: boolean, messageId: string | null) => void) | null = null;
   private interimDebounceTimer: NodeJS.Timeout | null = null;
   private interimDebounceDelay: number = 4000;
+  private ttsSequenceMap = new Map<string, number>(); // messageId -> next expected sequence
 
   private mediaStream: MediaStream | null = null;
   private audioTracks: MediaStreamTrack[] = [];
@@ -540,6 +541,7 @@ export class SpeechRecognitionManager extends AudioManager {
   synthesizeSpeechStream(
     textSegment: string, 
     messageId: string, 
+    sequenceNumber: number,
     onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void,
     onCompleteAudio?: (messageId: string, audioData: Uint8Array) => void
 ) {
@@ -551,7 +553,6 @@ export class SpeechRecognitionManager extends AudioManager {
         if (!this.audioContext) await this.initializeAudioContext();
         if (this.audioContext!.state === 'suspended') await this.audioContext!.resume();
 
-        // mark playing id so UI can duck mic
         this.currentlyPlayingId = messageId;
 
         const res = await fetch('/api/tts?partial=true', {
@@ -571,19 +572,17 @@ export class SpeechRecognitionManager extends AudioManager {
 
         let allBytes = new Uint8Array(0);
         let remainingBytes = new Uint8Array(0);
+        const buffers: AudioBuffer[] = []; // Collect all buffers for this segment
 
         while (true) {
           const { done, value } = await reader.read();
           
           if (value && value.byteLength > 0) {
-
-            // Accumulate complete audio
             const mergedAll = new Uint8Array(allBytes.length + value.length);
             mergedAll.set(allBytes);
             mergedAll.set(value, allBytes.length);
             allBytes = mergedAll;
             
-            // Process for streaming playback
             const combined = new Uint8Array(remainingBytes.length + value.length);
             combined.set(remainingBytes);
             combined.set(value, remainingBytes.length);
@@ -601,22 +600,16 @@ export class SpeechRecognitionManager extends AudioManager {
                   SAMPLE_RATE
                 );
                 audioBuffer.getChannelData(0).set(float32Data);
-                this.audioQueue.push(audioBuffer);
+                buffers.push(audioBuffer);
               }
 
               remainingBytes = combined.subarray(completeBytes);
             } else {
               remainingBytes = combined;
             }
-
-            // Start playback when we have buffers
-            if (!this.isPlaying && this.audioQueue.length > 0) {
-              this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange);
-            }
           }
 
           if (done) {
-            // Flush remaining bytes
             if (remainingBytes.length >= 2) {
               const float32Data = convertInt16ToFloat32(remainingBytes);
               if (float32Data.length > 0) {
@@ -626,15 +619,19 @@ export class SpeechRecognitionManager extends AudioManager {
                   SAMPLE_RATE
                 );
                 audioBuffer.getChannelData(0).set(float32Data);
-                this.audioQueue.push(audioBuffer);
+                buffers.push(audioBuffer);
               }
             }
 
+            // Add buffers to queue IN ORDER
+            for (const buffer of buffers) {
+              this.audioQueue.push(buffer);
+            }
+            
             if (!this.isPlaying && this.audioQueue.length > 0) {
               this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange);
             }
 
-            // Call completion callback ONCE with full audio
             if (onCompleteAudio) {
               onCompleteAudio(messageId, allBytes);
             }
