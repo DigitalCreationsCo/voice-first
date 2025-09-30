@@ -27,7 +27,7 @@ class AudioManager {
     // Create gain node for volume control
     if (!this.gainNode) {
       this.gainNode = this.audioContext.createGain();
-      this.gainNode.gain.value = 0.8;
+      this.gainNode.gain.value = 1;
     }
 
     // Create destination node for capturing playback audio (echo cancellation reference)
@@ -161,8 +161,9 @@ export class SpeechRecognitionManager extends AudioManager {
   private onError: ((error: string) => void) | null = null;
   private onPlaybackStateChange: ((isPlaying: boolean, messageId: string | null) => void) | null = null;
   private interimDebounceTimer: NodeJS.Timeout | null = null;
-  private interimDebounceDelay: number = 500;
-  
+  private interimDebounceDelay: number = 4000;
+  private fallbackUtter: SpeechSynthesisUtterance | null = null;
+
   private mediaStream: MediaStream | null = null;
   private audioTracks: MediaStreamTrack[] = [];
   private inputGainNode: GainNode | null = null;
@@ -184,7 +185,7 @@ export class SpeechRecognitionManager extends AudioManager {
     this.recognition.interimResults = true;
     this.recognition.lang = 'en-US';
 
-    this.recognition.onresult = (event: any) => {
+    this.recognition.onresult = async (event: any) => {
       let finalTranscript = '';
       let interimTranscript = '';
 
@@ -198,11 +199,22 @@ export class SpeechRecognitionManager extends AudioManager {
       }
 
       if (finalTranscript && this.onResult) {
+
+        // Correct the transcription before passing to callback
+        const correction = await this.correctTranscription(
+          finalTranscript
+        );
+        
+        console.log('Raw:', finalTranscript);
+        console.log('Corrected:', correction.corrected);
+        console.log('Changes:', correction.changes);
+
         if (this.interimDebounceTimer) {
           clearTimeout(this.interimDebounceTimer);
           this.interimDebounceTimer = null;
         }
-        this.onResult(finalTranscript);
+
+        this.onResult(correction.corrected);
       }
       
       if (interimTranscript && this.onInterimResult) {
@@ -290,6 +302,24 @@ export class SpeechRecognitionManager extends AudioManager {
     }
   }
 
+  stopListening() {
+    if (this.recognition) {
+      this.recognition.stop();
+    }
+    
+    if (this.interimDebounceTimer) {
+      clearTimeout(this.interimDebounceTimer);
+      this.interimDebounceTimer = null;
+    }
+
+    // Stop all audio tracks
+    this.audioTracks.forEach(track => track.stop());
+    this.audioTracks = [];
+    this.mediaStream = null;
+    
+    this.isListening = false;
+  }
+
   protected playQueuedAudioWithReduceInputGain(
     onPlaybackStateChange?: (isPlaying: boolean, messageId: string | null) => void
   ): void {
@@ -356,24 +386,6 @@ export class SpeechRecognitionManager extends AudioManager {
         onPlaybackStateChange(false, null);
       }
     }
-  }
-
-  stopListening() {
-    if (this.recognition) {
-      this.recognition.stop();
-    }
-    
-    if (this.interimDebounceTimer) {
-      clearTimeout(this.interimDebounceTimer);
-      this.interimDebounceTimer = null;
-    }
-
-    // Stop all audio tracks
-    this.audioTracks.forEach(track => track.stop());
-    this.audioTracks = [];
-    this.mediaStream = null;
-    
-    this.isListening = false;
   }
 
   /**
@@ -519,8 +531,185 @@ export class SpeechRecognitionManager extends AudioManager {
       }
       throw error;
     }
+  };
+
+  /**
+   * Fire-and-forget streaming TTS for partial segments.
+   * Streams binary PCM16 from /api/tts?partial=true and enqueues into audioQueue.
+   */
+  synthesizeSpeechStream(
+    textSegment: string, 
+    messageId: string, 
+    onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void,
+    onCompleteAudio?: (messageId: string, audioData: Uint8Array) => void
+) {
+    if (!textSegment || !textSegment.trim()) return;
+
+    // run in background — don't await in caller
+    (async () => {
+      try {
+        if (!this.audioContext) await this.initializeAudioContext();
+        if (this.audioContext!.state === 'suspended') await this.audioContext!.resume();
+
+        // mark playing id so UI can duck mic
+        this.currentlyPlayingId = messageId;
+
+        const res = await fetch('/api/tts?partial=true', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: textSegment }),
+        });
+
+        if (!res.ok || !res.body) {
+          console.warn('Partial TTS returned no body or failed', res.status);
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const SAMPLE_RATE = 24000;
+        const CHANNELS = 1;
+
+        // NEW: accumulate full audio data here
+        let allBytes = new Uint8Array(0);
+
+        let remainingBytes = new Uint8Array(0);
+
+        // When the first chunk arrives we should ramp/stop fallback
+        let firstChunkArrived = false;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (value && value.byteLength > 0) {
+
+            // append to full audio accumulator
+            const mergedAll = new Uint8Array(allBytes.length + value.length);
+            mergedAll.set(allBytes);
+            mergedAll.set(value, allBytes.length);
+            allBytes = mergedAll;
+
+            if (!firstChunkArrived) {
+              firstChunkArrived = true;
+              // stop the cheap fallback immediately (replace with high-quality audio)
+              try { window.speechSynthesis.cancel(); } catch (e) {}
+            }
+
+            // append streaming bytes as you already do
+            const combined = new Uint8Array(remainingBytes.length + value.length);
+            combined.set(remainingBytes);
+            combined.set(value, remainingBytes.length);
+
+            const completeBytes = combined.length - (combined.length % 2);
+            if (completeBytes >= 2) {
+              const audioData = combined.subarray(0, completeBytes);
+              const float32Data = convertInt16ToFloat32(audioData);
+              if (float32Data.length > 0) {
+                try {
+                  const audioBuffer = this.audioContext!.createBuffer(
+                    CHANNELS,
+                    float32Data.length,
+                    SAMPLE_RATE
+                  );
+                  audioBuffer.getChannelData(0).set(float32Data);
+                  this.audioQueue.push(audioBuffer);
+                } catch (err) {
+                  console.error('enqueue buffer error', err);
+                }
+              }
+              remainingBytes = combined.subarray(completeBytes);
+            } else {
+              remainingBytes = combined;
+            }
+
+            if (!this.isPlaying && this.audioQueue.length > 0) {
+              this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange || undefined);
+            }
+          }
+
+          if (done) {
+            // flush final remaining bytes
+            if (remainingBytes.length >= 2) {
+              const float32Data = convertInt16ToFloat32(remainingBytes);
+              if (float32Data.length > 0) {
+                try {
+                  const audioBuffer = this.audioContext!.createBuffer(
+                    CHANNELS,
+                    float32Data.length,
+                    SAMPLE_RATE
+                  );
+                  audioBuffer.getChannelData(0).set(float32Data);
+                  this.audioQueue.push(audioBuffer);
+                } catch (err) {
+                  console.error('final enqueue error', err);
+                }
+              }
+            }
+            // ensure playback started if still not playing
+            if (!this.isPlaying && this.audioQueue.length > 0) {
+              this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange || undefined);
+            }
+
+            if (onCompleteAudio) {
+              onCompleteAudio(messageId, allBytes);
+            }
+            break;
+          }
+        }
+      } catch (err) {
+        console.error('synthesizeSpeechStream error', err);
+      } finally {
+        // let UI know we finished this segment
+        this.currentlyPlayingId = null;
+        onPlaybackStateChange?.(false, null);
+      }
+    })();
+  };
+
+  async correctTranscription(
+    rawTranscript: string,
+    messages: string[] = []
+  ): Promise<{ corrected: string; confidence: number; changes: string[] }> {
+    try {
+      const response = await fetch('/api/correct-speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          transcript: rawTranscript,
+          messages: messages.slice(-5, -1),
+        }),
+      });
+      
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Speech correction failed:', error);
+      return { 
+        corrected: rawTranscript, 
+        confidence: 0.5,
+        changes: []
+      };
+    }
   }
 
+   /**
+   * Convenience: small fast fallback via Web Speech API for perceptual latency.
+   * Use only for the very first few words; cancel when high-quality audio arrives.
+   */
+   playFallbackSpeech(text: string) {
+    try {
+      if (!('speechSynthesis' in window)) return;
+      // cancel any existing fallback
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      // small volume and rate adjustments can improve perceived velocity
+      u.rate = 1.05;
+      u.pitch = 1.0;
+      window.speechSynthesis.speak(u);
+      this.fallbackUtter = u;
+    } catch (e) {
+      // ignore
+    }
+  }
+  
   protected setInterimResultDelay(delayMs: number) {
     this.interimDebounceDelay = delayMs;
   }

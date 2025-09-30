@@ -1,7 +1,7 @@
 import { convertToCoreMessages, UIMessage as Message, streamText } from "ai";
 import { z } from "zod";
 
-import { geminiProModel } from "@/lib/text-models";
+import { geminiProModel15LM } from "@/lib/text-models";
 import {
   generateReservationPrice,
   generateSampleFlightSearchResults,
@@ -32,7 +32,7 @@ export async function POST(request: Request, response: Response) {
     (message) => message.content.length > 0,
   );
 
-  const model = await geminiProModel()
+  const model = geminiProModel15LM
   const result = await streamText({
     model: model,
     system: `\n

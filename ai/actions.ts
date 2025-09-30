@@ -1,7 +1,7 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 
-import { geminiFlashModel } from "../lib/text-models";
+import { geminiFlashModel15SM } from "../lib/text-models";
 
 export async function generateSampleFlightStatus({
   flightNumber,
@@ -11,7 +11,7 @@ export async function generateSampleFlightStatus({
   date: string;
 }) {
   const { object: flightStatus } = await generateObject({
-    model: geminiFlashModel,
+    model: geminiFlashModel15SM,
     prompt: `Flight status for flight number ${flightNumber} on ${date}`,
     schema: z.object({
       flightNumber: z.string().describe("Flight number, e.g., BA123, AA31"),

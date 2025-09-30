@@ -13,8 +13,14 @@ interface UseAudioManagerReturn {
   
   // TTS Playback
   synthesizeSpeech: (text: string, messageId: string) => Promise<Uint8Array>;
+  synthesizeSpeechStream: (
+    text: string, 
+    messageId: string, 
+    onCompleteAudio?: (messageId: string, audioData: Uint8Array) => void, 
+  ) => void;
   playMessageAudio: (audioData: any, messageId: string) => void;
   stopPlayback: () => void;
+  playFallbackSpeech: (text:string, messageId: string) => void;
   isPlayingAudio: boolean;
   currentlyPlayingId: string | null;
   
@@ -24,7 +30,6 @@ interface UseAudioManagerReturn {
 }
 
 export function useAudioManager(): UseAudioManagerReturn {
-  // UI State
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [interimTranscript, setInterimTranscript] = useState('');
@@ -106,7 +111,7 @@ export function useAudioManager(): UseAudioManagerReturn {
   const synthesizeSpeech = useCallback(async (text: string, messageId: string) => {
     if (!managerRef.current || !isInitialized) {
       console.error('Audio manager not initialized');
-      return;
+      throw Error('Audio manager not initialized');
     }
 
     try {
@@ -117,6 +122,34 @@ export function useAudioManager(): UseAudioManagerReturn {
           setIsPlayingAudio(isPlaying);
           setCurrentlyPlayingId(msgId);
         }
+      );
+      return audioData;
+    } catch (error) {
+      console.error('Error synthesizing speech:', error);
+      setIsPlayingAudio(false);
+      setCurrentlyPlayingId(null);
+    }
+  }, [isInitialized, isListening, stopListening]);
+  
+  const synthesizeSpeechStream: UseAudioManagerReturn['synthesizeSpeechStream'] = useCallback((
+    text,
+    messageId,
+    onCompleteAudio?
+  ) => {
+    if (!managerRef.current || !isInitialized) {
+      console.error('Audio manager not initialized');
+      return;
+    }
+
+    try {
+      const audioData = managerRef.current.synthesizeSpeechStream(
+        text,
+        messageId,
+        (isPlaying, msgId) => {
+          setIsPlayingAudio(isPlaying);
+          setCurrentlyPlayingId(msgId);
+        },
+        onCompleteAudio
       );
       return audioData;
     } catch (error) {
@@ -150,6 +183,14 @@ export function useAudioManager(): UseAudioManagerReturn {
     }
   }, []);
 
+  const playFallbackSpeech = (text: string, messageId: string) => {
+    if (managerRef.current) {
+      managerRef.current.playFallbackSpeech(text);
+      setIsPlayingAudio(true);
+      setCurrentlyPlayingId(messageId);
+    }
+  };
+
   return {
     startListening,
     stopListening,
@@ -157,8 +198,10 @@ export function useAudioManager(): UseAudioManagerReturn {
     transcript,
     interimTranscript,
     synthesizeSpeech,
+    synthesizeSpeechStream,
     playMessageAudio,
     stopPlayback,
+    playFallbackSpeech,
     isPlayingAudio,
     currentlyPlayingId,
     isInitialized,

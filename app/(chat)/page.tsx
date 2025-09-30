@@ -1,5 +1,5 @@
 import { Chat } from "@/components/chat/chat";
-import { generateUUID, UIMessage } from "@/lib/utils";
+import { generateMessageId, UIMessage } from "@/lib/utils";
 
 
 const initialMessages:UIMessage[] = []
@@ -15,6 +15,6 @@ const initialMessages:UIMessage[] = []
 
 
 export default async function Page() {
-  const id = generateUUID();
+  const id = generateMessageId();
   return <Chat key={id} id={id} initialMessages={initialMessages} />;
 }

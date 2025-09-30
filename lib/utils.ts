@@ -109,7 +109,7 @@ export function getLocalStorage(key: string) {
     return JSON.parse(localStorage.getItem(key) || "[]");
   }
   return [];
-}
+};
 
 export function generateUUID(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
@@ -117,7 +117,12 @@ export function generateUUID(): string {
     const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
+};
+
+export function generateMessageId() {
+  return generateUUID();
 }
+
 
 function addToolMessageToChat({
   toolMessage,
@@ -195,6 +200,16 @@ export function convertToUIMessages(
 }
 
 
+interface CreateUIMessage {
+  id?: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp?: number;
+  isAudio?: boolean;
+  audioData?: Uint8Array;
+  isComplete?: boolean;
+}
+
 export interface UIMessage {
   id: string;
   role: "user" | "assistant";
@@ -205,15 +220,15 @@ export interface UIMessage {
   isComplete: boolean;
 };
 
-export function buildUIMessage(text: string, role: "user" | "assistant", isAudioInput = false, ):UIMessage {
+export function buildUIMessage(props: CreateUIMessage):UIMessage {
   return {
-    id: `msg-${Date.now()}-user`,
-    role: role,
-    content: text.trim(),
+    id: props.id || generateMessageId(),
+    role: props.role,
+    content: props.content.trim() || '',
     timestamp: Date.now(),
-    isAudio: isAudioInput,
-    audioData: undefined,
-    isComplete: false
+    isAudio: props.isAudio || false,
+    audioData: props.audioData || undefined,
+    isComplete: props.isComplete || false
   };
 };
 

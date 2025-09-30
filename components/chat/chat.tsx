@@ -19,8 +19,8 @@ import { PreviewAttachment } from "./preview-attachment";
 import useWindowSize from "../../hooks/use-window-size";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
-import { geminiFlashModelSM } from "@/lib/text-models";
-import { buildUIMessage, UIMessage } from "@/lib/utils";
+import { geminiFlashModel15SM } from "@/lib/text-models";
+import { buildUIMessage, generateMessageId, UIMessage } from "@/lib/utils";
 import { SuggestedActions } from "./suggested-actions";
 import { VoiceInputButton } from "./voice-input-button";
 import { Message } from "./message";
@@ -47,9 +47,11 @@ export function Chat({
     isListening,
     transcript,
     interimTranscript,
-    synthesizeSpeech,
+    // synthesizeSpeech,
+    synthesizeSpeechStream,
     playMessageAudio,
     stopPlayback,
+    playFallbackSpeech,
     isPlayingAudio,
     currentlyPlayingId,
     isInitialized,
@@ -85,48 +87,81 @@ export function Chat({
   const generateTextResponse = useCallback(async (userMessage: string) => {
     try {
       setIsLoading(true);
+      
+      const CHUNK_CHAR_THRESHOLD = 120; // adjust to taste: smaller => lower latency, more API calls
+      const CHUNK_END_PUNCT_RE = /[.?!]\s*$/;
 
       const { elementStream } = streamObject({
         maxOutputTokens: 1000,
-        model: geminiFlashModelSM,
+        model: geminiFlashModel15SM,
         output: 'array',
         schema: z.string(),
         prompt: "You are a helpful AI assistant. Respond naturally and conversationally. Keep responses concise but engaging. " + userMessage,
       });
       
       let fullResponse = '';
+      let ttsBuffer = '';
+      let ttsStarted = false;
+      let messageId = generateMessageId();
+      let lastSegment: string | null = null;
 
       for await (const textChunk of elementStream) {
-        console.log('text chunk: ', textChunk);
         fullResponse += textChunk;
 
-        const assistantMessage = buildUIMessage(textChunk, "assistant");
         setMessages(prev => {
-          const lastMessage = prev[prev.length - 1];
-          if (lastMessage?.role === "assistant" && !lastMessage.isComplete) {
-            // Update existing assistant message
-            return [
-              ...prev.slice(0, -1),
-              { ...lastMessage, content: fullResponse }
-            ]
+          const last = prev[prev.length - 1];
+          if (last?.role === 'assistant' && !last.isComplete) {
+            return [...prev.slice(0, -1), { ...last, content: fullResponse }];
           }
-          // Add new assistant message
-          return [...prev, { ...assistantMessage, isComplete: false }]
+          return [
+            ...prev, 
+            buildUIMessage({ id: messageId, role: 'assistant', content: fullResponse, isComplete: false })];
         });
+
+        if (!ttsStarted) {
+          ttsStarted = true;
+          const firstChunk = textChunk.slice(0, 40);
+          playFallbackSpeech(firstChunk, messageId);
+        }
+
+        ttsBuffer += textChunk;
+
+        if (ttsBuffer.length >= CHUNK_CHAR_THRESHOLD || CHUNK_END_PUNCT_RE.test(ttsBuffer)) {
+          const ttsSegment = ttsBuffer;
+          ttsBuffer = '';
+          lastSegment = ttsSegment; // keep reference for final onComplete
+
+          synthesizeSpeechStream(ttsSegment, messageId)
+        }
       }
 
-      // Mark message as complete and generate speech
-      const finalMessage = buildUIMessage(fullResponse, "assistant");
-      
-      let audioData :Uint8Array;
-      if (fullResponse.trim()) {
-        audioData = await synthesizeSpeech(fullResponse, finalMessage.id);
+      if (ttsBuffer.trim()) {
+        lastSegment = ttsBuffer;
+        ttsBuffer = '';
       }
 
-      setMessages(prev => {
-        const withoutIncomplete = prev.filter(m => m.role !== 'assistant' || m.isComplete !== false);
-        return [...withoutIncomplete, { ...finalMessage, audioData, isComplete: true }];
-      });
+      if (lastSegment) {
+        synthesizeSpeechStream(
+          lastSegment, 
+          messageId, 
+          (messageId, audioData) => {
+            const finalMessage = buildUIMessage({ 
+              id: messageId,
+              content: fullResponse, 
+              role: "assistant", 
+              audioData,
+              isComplete: true 
+            });
+            
+            setMessages(prev => {
+              const withoutIncomplete = prev.filter(m => m.role !== 'assistant' || m.isComplete !== false);
+              return [...withoutIncomplete, finalMessage];
+            });
+          }
+        );
+      }
+
+      return fullResponse;
     } catch (error) {
       console.error('LLM Error:', error);
       toast.error('Failed to generate response');
@@ -135,13 +170,13 @@ export function Chat({
       setIsLoading(false);
       abortControllerRef.current = null;
     }
-  }, [synthesizeSpeech]);
+  }, [synthesizeSpeechStream]);
 
   // Handle message submission
-  const handleSubmitMessage = useCallback(async (text: string, isAudioInput = false) => {
+  const handleSubmitMessage = useCallback(async (text: string, isAudio = false) => {
     if (!text.trim() || isLoading) return;
 
-    const userMessage = buildUIMessage(text, "user", isAudioInput);
+    const userMessage = buildUIMessage({ content: text, role: "user", isAudio });
 
     setMessages(prev => [...prev, userMessage]);
     setInput('');
@@ -175,6 +210,10 @@ export function Chat({
           className="flex flex-col gap-4 h-full w-dvw items-center overflow-y-scroll"
         >
           {messages.length === 0 && <Overview />}
+
+          Transcript(test): {transcript}
+          <br/>
+          Interim Transcript(test): {interimTranscript}
 
           {messages.map((message) => (
             // <Message 
