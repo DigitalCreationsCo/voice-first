@@ -27,19 +27,6 @@ export async function POST(req: Request) {
               },
             },
           });
-          // const session = await ttsClient.models.generateContentStream({
-          //   model: gemini.flash25TTS.modelId,
-          //   contents: [{ parts: [{ text }] }],
-          //   config: {
-          //     maxOutputTokens: 1000,
-          //     responseModalities: [Modality.AUDIO],
-          //     speechConfig: {
-          //       voiceConfig: { 
-          //         prebuiltVoiceConfig: { voiceName: 'Algenib' } 
-          //       },
-          //     },
-          //   },
-          // });
 
           let chunkCount = 0;
           const MIN_CHUNK_SIZE = 4096; // Buffer small chunks for smoother delivery

@@ -19,13 +19,15 @@ import { PreviewAttachment } from "./preview-attachment";
 import useWindowSize from "../../hooks/use-window-size";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
-import { buildUIMessage, generateMessageId, UIMessage } from "@/lib/utils";
+import { buildUIMessage, generateMessageId, getWebSocketUrl, UIMessage } from "@/lib/utils";
 import { SuggestedActions } from "./suggested-actions";
 import { VoiceInputButton } from "./voice-input-button";
 import { Message } from "./message";
 import { useAudioManager } from "@/hooks/use-audio-manager";
 import { PlayIcon, Square, Volume2 } from "lucide-react";
 import gemini from "@/lib/gemini";
+import { ChatWebSocketClient } from "@/lib/socket";
+import build from "next/dist/build";
 
 
 export function Chat({
@@ -37,16 +39,22 @@ export function Chat({
 }) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<UIMessage[]>(initialMessages);
+  const [isConnected, setIsConnected] = useState(false);
+  const [error, setError] = useState('');
+
   const [isLoading, setIsLoading] = useState(false);
   const [attachments, setAttachments] = useState<Array<any>>([]);
   const [messagesContainerRef, messagesEndRef] = useScrollToBottom<HTMLDivElement>();
-  
+  const clientRef = useRef<ChatWebSocketClient | null>(null);
+
   const {
     startListening,
     stopListening,
     isListening,
     transcript,
+    setTranscript,
     interimTranscript,
+    setInterimTranscript,
     // synthesizeSpeech,
     synthesizeSpeechStream,
     playMessageAudio,
@@ -58,6 +66,34 @@ export function Chat({
   } = useAudioManager();
 
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const wsUrl = getWebSocketUrl()
+    const client = new ChatWebSocketClient(wsUrl);
+    
+    client.setConnectionChangeCallback((connected) => {
+      setIsConnected(connected);
+      if (!connected) {
+        setError('Disconnected from server. Reconnecting...');
+      } else {
+        setError('');
+      }
+    });
+
+    client.connect()
+      .then(() => {
+        console.log('Connected successfully');
+        clientRef.current = client;
+      })
+      .catch((err) => {
+        console.error('Connection failed:', err);
+        setError('Failed to connect to chat server');
+      });
+
+    return () => {
+      client.disconnect();
+    };
+  }, []);
 
   // Auto-stop playback when voice input
   useEffect(() => {
@@ -96,7 +132,8 @@ export function Chat({
         model: gemini.flash2Lite,
         output: 'array',
         schema: z.string(),
-        prompt: "You are a helpful AI assistant. Respond naturally and conversationally. Keep responses concise but engaging. " + userMessage,
+        system: "You are a helpful AI assistant. Respond naturally and conversationally. Keep responses concise but engaging.",
+        prompt: "user: " + userMessage,
       });
       
       let fullResponse = '';
@@ -156,11 +193,11 @@ export function Chat({
         setMessages(prev => {
           const last = prev[prev.length - 1];
           if (last?.role === 'assistant' && !last.isComplete) {
-            return [...prev.slice(0, -1), { ...last, content: fullResponse }];
+            return [...prev.slice(0, -1), { ...last, content: last.content + textChunk }];
           }
           return [
             ...prev, 
-            buildUIMessage({ id: messageId, role: 'assistant', content: fullResponse, isComplete: false })];
+            buildUIMessage({ role: 'assistant', content: textChunk, isComplete: false })];
         });
 
         if (ttsBuffer.length >= CHUNK_CHAR_THRESHOLD || CHUNK_END_PUNCT_RE.test(ttsBuffer)) {
@@ -190,15 +227,91 @@ export function Chat({
 
   // Handle message submission
   const handleSubmitMessage = useCallback(async (text: string, isAudio = false) => {
-    if (!text.trim() || isLoading) return;
+    if (!text.trim() || isLoading || !clientRef.current?.isConnected) return;
 
     const userMessage = buildUIMessage({ content: text, role: "user", isAudio });
+    const updatedMessages = [...messages, userMessage] 
+    setMessages(updatedMessages);
 
-    setMessages(prev => [...prev, userMessage]);
     setInput('');
+    setIsLoading(true);
 
-    await generateTextResponse(text.trim());
-  }, [isLoading, generateTextResponse]);
+    try {
+      clientRef.current.sendChatMessage(updatedMessages, {
+        onStreamStart: (message) => {
+          console.log('Stream started');
+        },
+        onChunk: async (chunk) => {
+          console.info('onChunk: ', chunk);
+
+          setIsLoading(true);
+
+          // clientRef.current!.sendTTSRequest(chunk, {
+          //   onStreamStart(message) {
+          //     console.log('TTS stream started');
+          //   },
+          //   onChunk(audioData: Uint8Array) {
+          //     console.info('TTS onChunk: ', chunk);
+
+          //     setMessages(prev => {
+          //       const last = prev[prev.length - 1];
+          //       if (last?.role === 'assistant' && !last.isComplete) {
+          //         return [...prev.slice(0, -1), { ...last, audioData }];
+          //       }
+          //       return [
+          //         ...prev, 
+          //         buildUIMessage({ role: 'assistant', content: chunk, isComplete: false })];
+          //     });
+          //   },
+          //   onComplete(fullAudioData: Uint8Array) {
+          //     console.log('TTS onComplete full audio, ', fullAudioData);
+
+          //     setMessages(prev => {
+          //       const lastAssistantMessageIndex = findLastIncompleteAssistantMessageIndex(messages)
+          //       if (lastAssistantMessageIndex !== null) {
+          //         const lastAssistantMessage = messages[lastAssistantMessageIndex]
+          //         return [
+          //           ...prev,
+          //           { ...lastAssistantMessage, audioData: fullAudioData, isComplete: true }
+          //         ];
+          //       }
+          //       return [ ...prev] // this is a bug - must successfully resolve messages!
+          //       });
+          //   },
+          //   onError(error) {
+          //     setError(error);
+          //     setIsLoading(false);
+          //   },
+          // })
+
+          setMessages(prev => {
+            const last = prev[prev.length - 1];
+            if (last?.role === 'assistant' && !last.isComplete) {
+              return [...prev.slice(0, -1), { ...last, content: last.content + chunk }];
+            }
+            return [
+              ...prev, 
+              buildUIMessage({ role: 'assistant', content: chunk, isComplete: false })];
+          });
+        },
+        onComplete: (fullResponse) => {
+          console.log('onComplete full response, ', fullResponse);
+          setTranscript('');
+          setIsLoading(false);
+
+          // abortControllerRef.current = null;
+        },
+        onError: (errorMsg) => {
+          setError(errorMsg);
+          setIsLoading(false);
+          setTranscript('');
+        }
+      });
+    } catch (err: any) {
+      setError(err.message || 'Failed to send message');
+      setIsLoading(false);
+    }
+  }, [messages, ]);
 
   const handleStartListening = useCallback(() => {
     try {
@@ -582,3 +695,15 @@ export function MultimodalInput({
     </div>
   );
 };
+
+// Helper function to find the last message where role === "assistant" && !isComplete
+function findLastIncompleteAssistantMessageIndex(messages: UIMessage[]) {
+  // Iterate from the end of the array backwards to find the last matching message
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role === 'assistant' && !message.isComplete) {
+      return i;
+    }
+  }
+  return null; // Return null if no matching message is found
+}

@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/custom/theme-provider";
 
 import "./globals.css";
+import { setupGlobalLogger } from "@/lib/logger";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://gemini.vercel.ai"),
@@ -16,6 +17,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  setupGlobalLogger();
   return (
     <html lang="en">
       <body className="antialiased">

@@ -243,3 +243,22 @@ export function getTitleFromChat(chat: Chat) {
   return firstMessage.content;
 };
 
+export function getWebSocketUrl(): string {
+  if (typeof window === 'undefined') {
+    return ''; // Server-side
+  }
+
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const hostname = window.location.hostname;
+  
+  if (isDevelopment) {
+    // Use separate port in development to avoid HMR conflicts
+    const wsPort = process.env.NEXT_PUBLIC_WS_PORT || '3001';
+    return `ws://${hostname}:${wsPort}/api/chat/websocket`;
+  } else {
+    // Production: use same host with secure WebSocket
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const port = window.location.port ? `:${window.location.port}` : '';
+    return `${protocol}//${hostname}${port}/api/chat/websocket`;
+  }
+}

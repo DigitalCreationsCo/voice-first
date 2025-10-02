@@ -7,7 +7,7 @@
   },
   "homepage": "https://next-auth-example.vercel.app",
   "scripts": {
-    "dev": "next dev --turbo",
+    "dev": "tsx server.ts",
     "build": "tsx db/migrate && next build",
     "start": "next start",
     "lint": "next lint",
@@ -58,6 +58,8 @@
     "next": "^15.5.4",
     "next-auth": "beta",
     "next-themes": "^0.4.6",
+    "pino": "^9.12.0",
+    "pino-http": "^10.5.0",
     "postgres": "^3.4.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

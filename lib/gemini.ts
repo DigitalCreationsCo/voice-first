@@ -6,6 +6,10 @@ export const ttsClient = new GoogleGenAI({
   apiKey: process.env.NEXT_PUBLIC_GOOGLE_GENERATIVE_AI_API_KEY,
 })
 
+export const genAI = new GoogleGenAI({
+  apiKey: process.env.NEXT_PUBLIC_GOOGLE_GENERATIVE_AI_API_KEY,
+})
+
 const genAIClient = createGoogleGenerativeAI({
   apiKey: process.env.NEXT_PUBLIC_GOOGLE_GENERATIVE_AI_API_KEY
 })
@@ -20,7 +24,8 @@ const flash2Lite = genAIClient.languageModel("gemini-2.0-flash-lite");
 const flash25TTS = genAIClient.languageModel("gemini-2.5-flash-preview-tts");
 const flash2TTS = genAIClient.languageModel("gemini-2.0-flash-live-001");
 
-export default { 
+export default {
+  genAI,
   pro25, 
   flash25,
   flash25Lite,

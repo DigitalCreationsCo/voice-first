@@ -9,7 +9,9 @@ interface UseAudioManagerReturn {
   stopListening: () => void;
   isListening: boolean;
   transcript: string;
+  setTranscript: (transcript: string) => void;
   interimTranscript: string;
+  setInterimTranscript: (interimTranscript: string) => void;
   
   // TTS Playback
   synthesizeSpeech: (text: string, messageId: string) => Promise<Uint8Array>;
@@ -199,7 +201,9 @@ export function useAudioManager(): UseAudioManagerReturn {
     stopListening,
     isListening,
     transcript,
+    setTranscript,
     interimTranscript,
+    setInterimTranscript,
     synthesizeSpeech,
     synthesizeSpeechStream,
     playMessageAudio,
