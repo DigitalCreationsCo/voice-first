@@ -2,17 +2,14 @@ import {
   CoreMessage,
   CoreToolMessage,
   generateId,
-  // UIMessage,
-  UIToolInvocation,
 } from "ai";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import {Blob} from '@google/genai';
 
 import { Chat } from "@/db/schema";
 
 
-export function encode(bytes) {
+export function encode(bytes: Uint8Array) {
   let binary = '';
   const len = bytes.byteLength;
   for (let i = 0; i < len; i++) {
@@ -21,7 +18,7 @@ export function encode(bytes) {
   return btoa(binary);
 }
 
-export function decode(base64) {
+export function decode(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
@@ -31,7 +28,7 @@ export function decode(base64) {
   return bytes;
 }
 
-export function createBlob(data: Float32Array): Blob {
+export function createBlob(data: Float32Array) {
   const l = data.length;
   const int16 = new Int16Array(l);
   for (let i = 0; i < l; i++) {

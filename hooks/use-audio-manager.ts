@@ -1,7 +1,6 @@
 // useAudioManager.ts
 import { useCallback, useRef, useState, useEffect } from 'react';
 import { SpeechRecognitionManager } from '@/lib/speech';
-import { VoiceConfig } from '@google/genai';
 
 interface UseAudioManagerReturn {
   // Speech Recognition
@@ -29,6 +28,7 @@ interface UseAudioManagerReturn {
   // State
   isInitialized: boolean;
   initializeAudio?: any;
+  playAudioBufferDirect: (data: Uint8Array) => void;
 }
 
 export function useAudioManager(): UseAudioManagerReturn {
@@ -45,6 +45,7 @@ export function useAudioManager(): UseAudioManagerReturn {
   // Initialize once on mount
   useEffect(() => {
     const initializeManager = async () => {
+      console.log('Initializing SpeechRecognitionManager')
       try {
         managerRef.current = new SpeechRecognitionManager();
         await managerRef.current.initialize();
@@ -186,15 +187,36 @@ export function useAudioManager(): UseAudioManagerReturn {
       setIsPlayingAudio(false);
       setCurrentlyPlayingId(null);
     }
-  }, []);
+  }, [isInitialized]);
 
-  const playFallbackSpeech = (text: string, messageId: string) => {
+  const playFallbackSpeech = useCallback((text: string, messageId: string) => {
+    if (!managerRef.current || !isInitialized) {
+      console.error('Audio manager not initialized');
+    }
+    
     if (managerRef.current) {
       managerRef.current.playFallbackSpeech(text);
       setIsPlayingAudio(true);
       setCurrentlyPlayingId(messageId);
     }
-  };
+  }, [isInitialized]);
+
+  const playAudioBufferDirect = useCallback((buffer: Uint8Array) => {
+    if (!isInitialized) {
+      console.error('Speech Recognition Manager not initialized');
+    }
+    if (!managerRef.current) {
+      console.error('ManagerRef current: ', managerRef.current);
+    }
+
+    if (managerRef.current) {
+      managerRef.current.playAudioBufferDirect(buffer, (isPlaying, msgId) => {
+        setIsPlayingAudio(isPlaying);
+        setCurrentlyPlayingId(msgId);
+      })
+      setIsPlayingAudio(true);
+    } 
+  }, [isInitialized]);
 
   return {
     startListening,
@@ -212,5 +234,6 @@ export function useAudioManager(): UseAudioManagerReturn {
     isPlayingAudio,
     currentlyPlayingId,
     isInitialized,
+    playAudioBufferDirect
   };
 }

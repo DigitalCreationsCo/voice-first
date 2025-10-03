@@ -115,11 +115,6 @@ export const MultimodalInput = () => {
       setConnectionStatus('connecting');
       setError('');
 
-      // Import Gemini SDK dynamically (simulated - in real app you'd import properly)
-      // const { GoogleGenAI } = await import('@google/genai');
-      // const ai = new GoogleGenAI({ apiKey });
-      
-      // For this demo, we'll simulate the connection
       const simulateConnection = () => {
         return {
           sendRealtimeInput: (input) => {

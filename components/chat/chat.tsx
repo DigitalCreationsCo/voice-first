@@ -3,7 +3,6 @@
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { z } from 'zod';
 import { Overview } from "../custom/overview";
-import { streamObject } from "ai";
 import React, {
   useRef,
   useEffect,
@@ -19,7 +18,7 @@ import { PreviewAttachment } from "./preview-attachment";
 import useWindowSize from "../../hooks/use-window-size";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
-import { buildUIMessage, generateMessageId, getWebSocketUrl, UIMessage } from "@/lib/utils";
+import { buildUIMessage, decode, generateMessageId, getWebSocketUrl, UIMessage } from "@/lib/utils";
 import { SuggestedActions } from "./suggested-actions";
 import { VoiceInputButton } from "./voice-input-button";
 import { Message } from "./message";
@@ -55,7 +54,6 @@ export function Chat({
     setTranscript,
     interimTranscript,
     setInterimTranscript,
-    // synthesizeSpeech,
     synthesizeSpeechStream,
     playMessageAudio,
     stopPlayback,
@@ -63,6 +61,7 @@ export function Chat({
     isPlayingAudio,
     currentlyPlayingId,
     isInitialized,
+    playAudioBufferDirect
   } = useAudioManager();
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -120,111 +119,6 @@ export function Chat({
     stopPlayback();
   }, [stopListening, stopPlayback]);
 
-  const generateTextResponse = useCallback(async (userMessage: string) => {
-    try {
-      setIsLoading(true);
-      
-      const CHUNK_CHAR_THRESHOLD = 120; // adjust to taste: smaller => lower latency, more API calls
-      const CHUNK_END_PUNCT_RE = /[.?!]\s*$/;
-
-      const { elementStream } = streamObject({
-        maxOutputTokens: 1000,
-        model: gemini.flash2Lite,
-        output: 'array',
-        schema: z.string(),
-        system: "You are a helpful AI assistant. Respond naturally and conversationally. Keep responses concise but engaging.",
-        prompt: "user: " + userMessage,
-      });
-      
-      let fullResponse = '';
-      let ttsBuffer = '';
-      let messageId = generateMessageId();
-      let fullAudioBytes = new Uint8Array(0);
-      
-      const ttsQueue: Array<{ segment: string; index: number }> = [];
-      let segmentIndex = 0;
-      let processingSegment = false;
-
-      const processTTSQueue = async () => {
-        if (processingSegment || ttsQueue.length === 0) return;
-        
-        processingSegment = true;
-        const { segment, index } = ttsQueue.shift()!;
-        
-        // Await each segment sequentially
-        await new Promise<void>((resolve) => {
-          synthesizeSpeechStream(segment, messageId, (msgId, audioData) => {
-            const merged = new Uint8Array(fullAudioBytes.length + audioData.length);
-            merged.set(fullAudioBytes);
-            merged.set(audioData, fullAudioBytes.length);
-            fullAudioBytes = merged;
-            resolve();
-          });
-        });
-        
-        processingSegment = false;
-        
-        // Process next in queue
-        if (ttsQueue.length > 0) {
-          processTTSQueue();
-        } else {
-          // All done - update final message
-          const finalMessage = buildUIMessage({ 
-            id: messageId,
-            role: "assistant", 
-            content: fullResponse, 
-            audioData: fullAudioBytes,
-            isComplete: true 
-          });
-          
-          setMessages(prev => {
-            const withoutIncomplete = prev.filter(m => m.id !== messageId);
-            return [...withoutIncomplete, finalMessage];
-          });
-        }
-      };
-
-      
-      for await (const textChunk of elementStream) {
-        fullResponse += textChunk;
-        ttsBuffer += textChunk;
-
-        // Update UI with streaming text
-        setMessages(prev => {
-          const last = prev[prev.length - 1];
-          if (last?.role === 'assistant' && !last.isComplete) {
-            return [...prev.slice(0, -1), { ...last, content: last.content + textChunk }];
-          }
-          return [
-            ...prev, 
-            buildUIMessage({ role: 'assistant', content: textChunk, isComplete: false })];
-        });
-
-        if (ttsBuffer.length >= CHUNK_CHAR_THRESHOLD || CHUNK_END_PUNCT_RE.test(ttsBuffer)) {
-          const segment = ttsBuffer;
-          ttsBuffer = '';
-
-          ttsQueue.push({ segment, index: segmentIndex++ });
-          processTTSQueue(); // Start processing if not already running
-        }
-      }
-
-      if (ttsBuffer.trim()) {
-        ttsQueue.push({ segment: ttsBuffer, index: segmentIndex++ });
-        processTTSQueue();
-      }
-
-      return fullResponse;
-    } catch (error) {
-      console.error('LLM Error:', error);
-      toast.error('Failed to generate response');
-      return '';
-    } finally {
-      setIsLoading(false);
-      abortControllerRef.current = null;
-    }
-  }, [synthesizeSpeechStream]);
-
   // Handle message submission
   const handleSubmitMessage = useCallback(async (text: string, isAudio = false) => {
     if (!text.trim() || isLoading || !clientRef.current?.isConnected) return;
@@ -246,43 +140,59 @@ export function Chat({
 
           setIsLoading(true);
 
-          // clientRef.current!.sendTTSRequest(chunk, {
-          //   onStreamStart(message) {
-          //     console.log('TTS stream started');
-          //   },
-          //   onChunk(audioData: Uint8Array) {
-          //     console.info('TTS onChunk: ', chunk);
+          clientRef.current!.sendTTSRequest(chunk, {
+            onStreamStart(message) {
+              console.log('TTS stream started');
+            },
+            onChunk(audioString: string) {
+              console.debug('TTS onChunk: ');
+              console.info('text: ', chunk);
+              console.info('base64 audio: ', audioString);
+              function base64ToUint8Array(base64: string): Uint8Array {
+                const binaryString = atob(base64); // decode base64 to binary string
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                  bytes[i] = binaryString.charCodeAt(i);
+                }
+                return bytes;
+              }
+              
+              const audioData = base64ToUint8Array(audioString);
 
-          //     setMessages(prev => {
-          //       const last = prev[prev.length - 1];
-          //       if (last?.role === 'assistant' && !last.isComplete) {
-          //         return [...prev.slice(0, -1), { ...last, audioData }];
-          //       }
-          //       return [
-          //         ...prev, 
-          //         buildUIMessage({ role: 'assistant', content: chunk, isComplete: false })];
-          //     });
-          //   },
-          //   onComplete(fullAudioData: Uint8Array) {
-          //     console.log('TTS onComplete full audio, ', fullAudioData);
+              setMessages(prev => {
+                const last = prev[prev.length - 1];
+                if (last?.role === 'assistant' && !last.isComplete) {
+                  return [...prev.slice(0, -1), { ...last, audioData }];
+                }
+                return [
+                  ...prev, 
+                  buildUIMessage({ role: 'assistant', content: chunk, isComplete: false })];
+              });
+              
+              // get messageId here, pass in function
+              playAudioBufferDirect(audioData);
+            },
+            onComplete(fullAudioData: string) {
+              console.log('TTS onComplete full audio, ', fullAudioData);
 
-          //     setMessages(prev => {
-          //       const lastAssistantMessageIndex = findLastIncompleteAssistantMessageIndex(messages)
-          //       if (lastAssistantMessageIndex !== null) {
-          //         const lastAssistantMessage = messages[lastAssistantMessageIndex]
-          //         return [
-          //           ...prev,
-          //           { ...lastAssistantMessage, audioData: fullAudioData, isComplete: true }
-          //         ];
-          //       }
-          //       return [ ...prev] // this is a bug - must successfully resolve messages!
-          //       });
-          //   },
-          //   onError(error) {
-          //     setError(error);
-          //     setIsLoading(false);
-          //   },
-          // })
+              setMessages(prev => {
+                const lastAssistantMessageIndex = findLastIncompleteAssistantMessageIndex(messages)
+                if (lastAssistantMessageIndex !== null) {
+                  const lastAssistantMessage = messages[lastAssistantMessageIndex]
+                  return [
+                    ...prev,
+                    { ...lastAssistantMessage, audioData: fullAudioData, isComplete: true }
+                  ];
+                }
+                return [ ...prev] // this is a bug - must successfully resolve messages!
+                });
+            },
+            onError(error) {
+              setError(error);
+              setIsLoading(false);
+            },
+          })
 
           setMessages(prev => {
             const last = prev[prev.length - 1];
@@ -298,8 +208,6 @@ export function Chat({
           console.log('onComplete full response, ', fullResponse);
           setTranscript('');
           setIsLoading(false);
-
-          // abortControllerRef.current = null;
         },
         onError: (errorMsg) => {
           setError(errorMsg);
@@ -339,7 +247,9 @@ export function Chat({
           className="flex flex-col gap-4 h-full w-dvw items-center overflow-y-scroll"
         >
           {messages.length === 0 && <Overview />}
-
+          
+          Audiocontext initialized: {String(isInitialized)}
+          <br/>
           Transcript(test): {transcript}
           <br/>
           Interim Transcript(test): {interimTranscript}
@@ -386,11 +296,6 @@ export function Chat({
                       </Button>
                     </div>
                   )}
-                  {/* {message.isAudio && (
-                    <div className="text-xs opacity-70 mt-1">
-                      < size={12} />
-                    </div>
-                  )} */}
                 </div>
               </div>
             </div>

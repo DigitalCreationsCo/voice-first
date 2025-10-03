@@ -1,5 +1,5 @@
 import { Modality } from '@google/genai';
-import gemini, { ttsClient } from '@/lib/gemini';
+import gemini, { genAI } from '@/lib/gemini';
 
 export async function POST(req: Request) {
   try {
@@ -14,8 +14,8 @@ export async function POST(req: Request) {
       async start(controller) {
         try {
 
-          const session = await ttsClient.models.generateContentStream({
-            model: gemini.flash25TTS.modelId,
+          const session = await genAI.models.generateContentStream({
+            model: gemini.flash25TTS,
             contents: [{ parts: [{ text }] }],
             config: {
               maxOutputTokens: 1000,

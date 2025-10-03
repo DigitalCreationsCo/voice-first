@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
 import { WebSocketServer } from 'ws';
 import { IncomingMessage } from 'http';
 import { Socket } from 'net';
 import { parse } from 'url';
+import { genAI } from "@/lib/gemini";
 
 // Store WebSocket server instance
 let wss: WebSocketServer | null = null;
@@ -77,8 +77,6 @@ async function handleChatRequest(ws: any, message: any) {
       }));
       return;
     }
-
-    const genAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY });
 
     // Convert OpenAI-style messages to Gemini format
     const history = messages.map((msg: any) => ({

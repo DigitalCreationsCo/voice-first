@@ -1,5 +1,3 @@
-import gemini, { ttsClient } from "./gemini";
-
 // WebSocket client implementation
 class ChatWebSocketClient {
   private ws: WebSocket | null = null;

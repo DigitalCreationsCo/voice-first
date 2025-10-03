@@ -4,8 +4,9 @@ import { parse } from 'url';
 import next from 'next';
 import { WebSocketServer } from 'ws';
 import { GoogleGenAI, Modality } from "@google/genai";
-import { serverLogger } from './lib/logger';
-import gemini, { genAI, ttsClient } from './lib/gemini';
+import { config } from 'dotenv';
+
+config();
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -15,8 +16,11 @@ const wsPort = parseInt(process.env.WS_PORT || '3001', 10);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
+const genAI = new GoogleGenAI({
+  apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+})    
+
 async function handleChatRequest(ws: any, message: any) {
-  console.log('handle chat request')
   if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
     ws.send(JSON.stringify({
       type: 'error',
@@ -27,8 +31,6 @@ async function handleChatRequest(ws: any, message: any) {
   
   try {
     const { messages } = message;
-
-    console.log('handle chat request2')
     
     if (!messages || !Array.isArray(messages)) {
       ws.send(JSON.stringify({
@@ -37,7 +39,7 @@ async function handleChatRequest(ws: any, message: any) {
       }));
       return;
     }
-
+   
     // Convert messages to Gemini format
     const history = messages.map((msg: any) => ({
       role: msg.role === "assistant" ? "model" : "user",
@@ -52,13 +54,10 @@ async function handleChatRequest(ws: any, message: any) {
     }));
 
     try {
-      console.log('handle chat request3')
-    
       const result = await genAI.models.generateContentStream({
-        model: gemini.flash2.modelId,
+        model: "gemini-2.0-flash",
         contents: history,
       });
-      // const result = [{ 'text': '1'}, {'text': '2'}, {'text': '3'}]
 
       let fullResponse = '';
 
@@ -76,10 +75,6 @@ async function handleChatRequest(ws: any, message: any) {
           }));
         }
       }
-
-      console.log('handle chat request4')
-    console.log('handle chat request5')
-    console.log('handle chat request6')
 
       // Send completion signal
       if (ws.readyState === ws.OPEN) {
@@ -142,8 +137,8 @@ async function handleTTSRequest(ws: any, message: any) {
     }));
 
     try {
-      const result = await ttsClient.models.generateContentStream({
-        model: gemini.flash25TTS.modelId,
+      const result = await genAI.models.generateContentStream({
+        model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text }] }],
         config: {
           maxOutputTokens: 1000,
@@ -157,10 +152,6 @@ async function handleTTSRequest(ws: any, message: any) {
       });
       
       let fullAudioBytes = new Uint8Array(0);
-      let chunkCount = 0;
-      const MIN_CHUNK_SIZE = 4096;
-
-      let buffer = new Uint8Array(0);
 
       for await (const chunk of result) {
         const candidate = chunk.candidates?.[0];
@@ -168,32 +159,18 @@ async function handleTTSRequest(ws: any, message: any) {
           for (const part of candidate.content.parts) {
             if (part.inlineData && part.inlineData.data && ws.readyState === ws.OPEN) {
 
-              const audioBuffer = Buffer.from(part.inlineData.data, 'base64');
-
-              // Accumulate into buffer
-              const combined = new Uint8Array(buffer.length + audioBuffer.length);
-              combined.set(buffer);
-              combined.set(audioBuffer, buffer.length);
-              buffer = combined;
-
-              // Send when buffer reaches minimum size OR if this is the last chunk
-              if (buffer.length >= MIN_CHUNK_SIZE) {
-                chunkCount++;
-
-                ws.send(JSON.stringify({
-                  type: "stream_chunk",
-                  content: buffer,
-                  finish_reason: null,
-                  requestId: message.requestId
-                }));
-
-                const merged = new Uint8Array(fullAudioBytes.length + buffer.length);
-                merged.set(fullAudioBytes);
-                merged.set(buffer, fullAudioBytes.length);
-                fullAudioBytes = merged;
-                
-                buffer = new Uint8Array(0); // Reset buffer
-              }
+              ws.send(JSON.stringify({
+                type: "stream_chunk",
+                content: part.inlineData.data,
+                finish_reason: null,
+                requestId: message.requestId
+              }));
+      
+              const audioChunk = Buffer.from(part.inlineData.data, 'base64');
+              const merged = new Uint8Array(fullAudioBytes.length + audioChunk.length);
+              merged.set(fullAudioBytes);
+              merged.set(audioChunk, fullAudioBytes.length);
+              fullAudioBytes = merged;
             }
           }
         }
@@ -209,8 +186,7 @@ async function handleTTSRequest(ws: any, message: any) {
         }));
       }
 
-      console.log(`TTS completed: ${chunkCount} chunks sent`);
-  
+      console.log(`TTS completed`);
 
     } catch (streamError: any) {
       console.error('TTS stream generation error:', streamError);
@@ -239,7 +215,7 @@ app.prepare().then(() => {
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url!, true);
     
-    serverLogger(req as any, res);
+    // serverLogger(req as any, res);
     
     handle(req, res, parsedUrl);
   });

@@ -21,32 +21,26 @@ class AudioManager {
         sampleRate: 24000,
         latencyHint: 'interactive'
       });
+      console.log('Audio Manager initialized new audio context')
     }
     
-    console.log('this.audioContext.state 1', this.audioContext.state);
-
     if (this.audioContext.state === 'suspended') {
-      console.log('audio state, 2', this.audioContext.state)
       await this.audioContext.resume();
+      console.log('Audio Manager resumed audio context')
     }
 
-    // Create gain node for volume control
     if (!this.outputGainNode) {
       this.outputGainNode = this.audioContext.createGain();
       this.outputGainNode.gain.value = 1;
     }
 
-    // Create destination node for capturing playback audio (echo cancellation reference)
     if (!this.destinationNode) {
       this.destinationNode = this.audioContext.createMediaStreamDestination();
       this.outputGainNode.connect(this.destinationNode);
     }
 
-    // Also connect to speakers
     this.outputGainNode.connect(this.audioContext.destination);
-    
     this.nextPlayTime = this.audioContext.currentTime;
-    
     return this.destinationNode.stream;
   }
 
@@ -61,13 +55,9 @@ class AudioManager {
 
     const source = this.audioContext!.createBufferSource();
     source.buffer = buffer;
-
-    // Connect through gain node for consistent volume
     source.connect(this.outputGainNode!);
     
     const currentTime = this.audioContext!.currentTime;
-
-    // Schedule seamlessly to avoid gaps
     if (this.nextPlayTime < currentTime) {
       this.nextPlayTime = currentTime;
     }
@@ -114,45 +104,50 @@ class AudioManager {
   }
   
   playMessageAudio(audioData: Uint8Array, messageId: string, onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void): void {
-    if (!this.audioContext) {
-      console.error('Audio context not initialized');
-      return;
-    }
-
     this.clearCurrentlyPlayingAudio(onPlaybackStateChange);
-    
+
+    this.playAudioBufferDirect(audioData, onPlaybackStateChange);
+    this.currentlyPlayingId = messageId;
+  }
+
+  async playAudioBufferDirect(buffer: Uint8Array, onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void) {
+
+    if (!buffer) return;
+
+    if (!this.audioContext) await this.initializeAudioContext();
+    if (this.audioContext!.state === 'suspended') await this.audioContext!.resume();
+
     try {
-      const float32Data = convertInt16ToFloat32(audioData);
+      const float32Data = convertInt16ToFloat32(buffer);
+      console.log('playAudioBufferDirect');
+      console.log('buffer: ', buffer);
+      console.log('buffer length: ', buffer.length);
+      console.log('float32Data: ', float32Data);
+      console.log('float32Data length: ', float32Data.length);
       if (float32Data.length > 0) {
         const SAMPLE_RATE = 24000;
         const CHANNELS = 1;
         
-        const audioBuffer = this.audioContext.createBuffer(
+        const audioBuffer = this.audioContext!.createBuffer(
           CHANNELS, 
           float32Data.length, 
           SAMPLE_RATE
         );
         audioBuffer.getChannelData(0).set(float32Data);
         
-        this.currentlyPlayingId = messageId;
         this.audioQueue.push(audioBuffer);
+        console.log('is audio playing? ', this.isPlaying);
         
         if (!this.isPlaying) {
           this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange);
         }
       }
     } catch (error) {
-      console.error('Error in playMessageAudio:', error);
-      if (onPlaybackStateChange) {
-        onPlaybackStateChange(false, null);
-      }
+      console.error('Error in playAudioBufferDirect:', error);
+      onPlaybackStateChange(false, null);
     }
   }
 
-  /**
-   * Convenience: small fast fallback via Web Speech API for perceptual latency.
-   * Use only for the very first few words; cancel when high-quality audio arrives.
-   */
   playFallbackSpeech(text: string) {
     try {
       if (!('speechSynthesis' in window)) return;
@@ -164,22 +159,16 @@ class AudioManager {
       u.pitch = 1.0;
       window.speechSynthesis.speak(u);
       this.fallbackUtter = u;
-    } catch (e) {
-      // ignore
-    }
+    } catch {}
   }
 
   stopAudio() {
-    // Clear the queue
     this.audioQueue = [];
     
-    // Stop current source
     if (this.currentSource) {
       try {
         this.currentSource.stop();
-      } catch (e) {
-        console.error('AudioManager.stopAudio: currentSource audio already stopped')
-      }
+      } catch {}
       this.currentSource = null;
     }
     
@@ -203,13 +192,8 @@ class AudioManager {
     return this.destinationNode?.stream || null;
   }
 
-  /**
-   * Clear currently playing audio and stop all playback
-   */
   clearCurrentlyPlayingAudio(onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void) {
     this.stopAudio();
-
-    console.log('Stopping all audio playback');
     onPlaybackStateChange(false, null);
   }
 
@@ -222,15 +206,12 @@ class AudioManager {
   }
 }
 
-// Utility function to convert Int16 to Float32
 export function convertInt16ToFloat32(int16Array: Uint8Array): Float32Array {
   const int16 = new Int16Array(int16Array.buffer, int16Array.byteOffset, int16Array.length / 2);
   const float32 = new Float32Array(int16.length);
-  
   for (let i = 0; i < int16.length; i++) {
     float32[i] = int16[i] / 32768.0;
   }
-  
   return float32;
 }
 
@@ -240,71 +221,26 @@ export class SpeechRecognitionManager extends AudioManager {
   private onResult: ((text: string) => void) | null = null;
   private onInterimResult: ((text: string) => void) | null = null;
   private onError: ((error: string) => void) | null = null;
-  private onPlaybackStateChange: ((isPlaying: boolean, messageId: string | null) => void) | null = null;
   private interimDebounceTimer: NodeJS.Timeout | null = null;
   private interimDebounceDelay: number = 4000;
-  private ttsSequenceMap = new Map<string, number>(); // messageId -> next expected sequence
-
   private mediaStream: MediaStream | null = null;
   private audioTracks: MediaStreamTrack[] = [];
 
   async initialize() {
-    // Initialize audio context first
     await this.initializeAudioContext();
 
-    // Initialize speech recognition
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
       throw new Error('Speech recognition not supported');
     }
 
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    this.recognition = new SpeechRecognition();
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    this.recognition = new SR();
     this.recognition.continuous = true;
     this.recognition.interimResults = true;
     this.recognition.lang = 'en-US';
 
-    this.recognition.onresult = async (event: any) => {
-      let finalTranscript = '';
-      let interimTranscript = '';
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript;
-        } else {
-          interimTranscript += transcript;
-        }
-      }
-
-      if (finalTranscript && this.onResult) {
-        if (this.interimDebounceTimer) {
-          clearTimeout(this.interimDebounceTimer);
-          this.interimDebounceTimer = null;
-        }
-
-        this.onResult(finalTranscript);
-      }
-      
-      if (interimTranscript && this.onInterimResult) {
-        if (this.interimDebounceTimer) {
-          clearTimeout(this.interimDebounceTimer);
-        }
-        
-        this.interimDebounceTimer = setTimeout(() => {
-          if (this.onInterimResult) {
-            this.onInterimResult(interimTranscript);
-          }
-          this.interimDebounceTimer = null;
-        }, this.interimDebounceDelay);
-      }
-    };
-
-    this.recognition.onerror = (event: any) => {
-      if (this.onError) {
-        this.onError(event.error);
-      }
-    };
-
+    this.recognition.onresult = async (event: any) => this.handleRecognitionResult(event);
+    this.recognition.onerror = (event: any) => this.onError?.(event.error);
     this.recognition.onend = () => {
       this.isListening = false;
       if (this.interimDebounceTimer) {
@@ -313,6 +249,42 @@ export class SpeechRecognitionManager extends AudioManager {
       }
     };
   }
+
+
+  private handleRecognitionResult(event: any) {
+    let finalTranscript = '';
+    let interimTranscript = '';
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        finalTranscript += transcript;
+      } else {
+        interimTranscript += transcript;
+      }
+    }
+
+    if (finalTranscript && this.onResult) {
+      if (this.interimDebounceTimer) {
+        clearTimeout(this.interimDebounceTimer);
+        this.interimDebounceTimer = null;
+      }
+      this.onResult(finalTranscript);
+    }
+    
+    if (interimTranscript && this.onInterimResult) {
+      if (this.interimDebounceTimer) {
+        clearTimeout(this.interimDebounceTimer);
+      }
+      
+      this.interimDebounceTimer = setTimeout(() => {
+        if (this.onInterimResult) {
+          this.onInterimResult(interimTranscript);
+        }
+        this.interimDebounceTimer = null;
+      }, this.interimDebounceDelay);
+    }
+  };
 
   /**
    * Start listening with echo cancellation
@@ -371,16 +343,13 @@ export class SpeechRecognitionManager extends AudioManager {
   }
 
   stopListening() {
-    if (this.recognition) {
-      this.recognition.stop();
-    }
+    this.recognition?.stop();
     
     if (this.interimDebounceTimer) {
       clearTimeout(this.interimDebounceTimer);
       this.interimDebounceTimer = null;
     }
 
-    // Stop all audio tracks
     this.audioTracks.forEach(track => track.stop());
     this.audioTracks = [];
     this.mediaStream = null;
@@ -388,10 +357,7 @@ export class SpeechRecognitionManager extends AudioManager {
     this.isListening = false;
   }
 
-  /**
-   * Deprecated - do not use
-   * Synthesize speech from text and stream audio playback
-   */
+  // Depracated
   async synthesizeSpeech(
     text: string, 
     messageId: string,
@@ -402,13 +368,10 @@ export class SpeechRecognitionManager extends AudioManager {
         await this.initializeAudioContext();
       }
 
-      // Ensure audio context is running
       if (this.audioContext!.state === 'suspended') {
         await this.audioContext!.resume();
       }
 
-      // Store callback for playback state changes
-      this.onPlaybackStateChange = onPlaybackStateChange || null;
       this.currentlyPlayingId = messageId;
 
       const response = await fetch('/api/tts', {
@@ -433,7 +396,7 @@ export class SpeechRecognitionManager extends AudioManager {
       const SAMPLE_RATE = 24000;
       const CHANNELS = 1;
       let remainingBytes = new Uint8Array(0);
-      const allAudioChunks: Uint8Array[] = []; // Collect all audio chunks
+      const allAudioChunks: Uint8Array[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -441,15 +404,12 @@ export class SpeechRecognitionManager extends AudioManager {
         if (value && value.byteLength > 0) {
           totalBytesReceived += value.byteLength;
           
-          // Store the raw audio chunk
           allAudioChunks.push(value);
           
-          // Combine with any remaining bytes from previous chunk
           const combinedBytes = new Uint8Array(remainingBytes.length + value.length);
           combinedBytes.set(remainingBytes);
           combinedBytes.set(value, remainingBytes.length);
           
-          // Calculate how many complete 16-bit samples we have
           const completeBytes = combinedBytes.length - (combinedBytes.length % 2);
           
           if (completeBytes >= 2) {
@@ -476,17 +436,15 @@ export class SpeechRecognitionManager extends AudioManager {
             remainingBytes = combinedBytes;
           }
 
-          // Start playing with minimal latency
           const MIN_CHUNKS_TO_START_PLAYBACK = 1;
           if (!this.isPlaying && this.audioQueue.length >= MIN_CHUNKS_TO_START_PLAYBACK) {
-            this.playQueuedAudioWithReduceInputGain(this.onPlaybackStateChange || undefined);
+            this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange);
           }
         }
 
         if (done) {
           console.log(`Audio stream finished. Total bytes: ${totalBytesReceived}`);
           
-          // Process any remaining bytes
           if (remainingBytes.length >= 2) {
             const float32Data = convertInt16ToFloat32(remainingBytes);
             if (float32Data.length > 0) {
@@ -504,15 +462,13 @@ export class SpeechRecognitionManager extends AudioManager {
             }
           }
           
-          // Ensure any remaining queued audio is played
           if (!this.isPlaying && this.audioQueue.length > 0) {
-            this.playQueuedAudioWithReduceInputGain(this.onPlaybackStateChange || undefined);
+            this.playQueuedAudioWithReduceInputGain(onPlaybackStateChange);
           }
           break;
         }
       }
 
-      // Combine all audio chunks into a single Uint8Array
       const totalLength = allAudioChunks.reduce((sum, chunk) => sum + chunk.length, 0);
       const completeAudioData = new Uint8Array(totalLength);
       let offset = 0;
@@ -527,9 +483,7 @@ export class SpeechRecognitionManager extends AudioManager {
       console.error('Error in synthesizeSpeech:', error);
       this.isPlaying = false;
       this.currentlyPlayingId = null;
-      if (this.onPlaybackStateChange) {
-        this.onPlaybackStateChange(false, null);
-      }
+      onPlaybackStateChange?.(false, null);
       throw error;
     }
   };
@@ -547,7 +501,6 @@ export class SpeechRecognitionManager extends AudioManager {
 ) {
     if (!textSegment || !textSegment.trim()) return;
 
-    // run in background — don't await in caller
     (async () => {
       try {
         if (!this.audioContext) await this.initializeAudioContext();
@@ -572,7 +525,7 @@ export class SpeechRecognitionManager extends AudioManager {
 
         let allBytes = new Uint8Array(0);
         let remainingBytes = new Uint8Array(0);
-        const buffers: AudioBuffer[] = []; // Collect all buffers for this segment
+        const buffers: AudioBuffer[] = [];
 
         while (true) {
           const { done, value } = await reader.read();
@@ -623,7 +576,6 @@ export class SpeechRecognitionManager extends AudioManager {
               }
             }
 
-            // Add buffers to queue IN ORDER
             for (const buffer of buffers) {
               this.audioQueue.push(buffer);
             }

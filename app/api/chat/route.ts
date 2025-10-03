@@ -1,5 +1,5 @@
+import { genAI } from "@/lib/gemini";
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
 
 export const runtime = "edge";
 
@@ -20,8 +20,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    const genAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY });
 
     // Convert OpenAI-style messages to Gemini format
     const history = messages.map((msg: any) => ({
