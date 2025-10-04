@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { auth, signOut } from "auth"
+import { auth, signOut } from "@/app/(auth)/auth"
 import { History } from "@/components/chat/history";
 import { MessageIcon, SlashIcon } from "./icons";
 import { ThemeToggle } from "./theme-toggle";

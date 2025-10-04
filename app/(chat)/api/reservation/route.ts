@@ -1,4 +1,4 @@
-import { auth } from "auth"
+import { auth } from "@/app/(auth)/auth"
 
 import { getReservationById, updateReservation } from "@/db/queries";
 
