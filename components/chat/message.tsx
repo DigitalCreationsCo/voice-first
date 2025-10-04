@@ -45,10 +45,10 @@ export const Message = ({
             : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
           }`}
       >
-        <div className="break-words whitespace-pre-wrap">
+        <div className="text-left break-words whitespace-pre-wrap">
           <span
-            className={`inline-block align-top w-5 h-5 border rounded-sm p-0.5
-              ${message.role === 'assistant' ? 'mr-2 text-zinc-500 border-zinc-500' : 'ml-2 order-last text-zinc-300 border-zinc-300'}`}
+            className={`inline-block align-top w-5 h-5 border-[1.6px] rounded-sm p-0.5 overflow-clip
+              ${message.role === 'assistant' ? 'float-left mr-2 text-zinc-500 border-zinc-500' : 'float-right ml-2 order-last text-zinc-300 border-zinc-300'}`}
           >
             {message.role === 'assistant' ? <BotIcon /> : <UserIcon />}
           </span>

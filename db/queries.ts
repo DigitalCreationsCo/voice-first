@@ -6,6 +6,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
 import { user, chat, User, reservation } from "./schema";
+import { generateUUID } from "@/lib/utils";
 
 // Optionally, if not using email/pass login, you can
 // use the Drizzle adapter for Auth.js / NextAuth
@@ -14,9 +15,9 @@ let client = postgres(`${process.env.POSTGRES_URL!}?sslmode=require`, { prepare:
 
 let db = drizzle(client);
 
-export async function getUser(email: string): Promise<Array<User>> {
+export async function getUser(email: string): Promise<User | undefined> {
   try {
-    return await db.select().from(user).where(eq(user.email, email));
+    return (await db.select().from(user).where(eq(user.email, email))).shift();
   } catch (error) {
     console.error("Failed to get user from database");
     throw error;
@@ -24,11 +25,13 @@ export async function getUser(email: string): Promise<Array<User>> {
 }
 
 export async function createUser(email: string, password: string) {
+  const id = generateUUID()
   let salt = genSaltSync(10);
   let hash = hashSync(password, salt);
-
   try {
-    return await db.insert(user).values({ email, password: hash });
+    const newUser = await db.insert(user).values({ id, email, password: hash });
+    console.log('Created new user in database: ', newUser);
+    return newUser;
   } catch (error) {
     console.error("Failed to create user in database");
     throw error;
@@ -85,7 +88,7 @@ export async function getChatsByUserId({ id }: { id: string }) {
       .where(eq(chat.userId, id))
       .orderBy(desc(chat.createdAt));
   } catch (error) {
-    console.error("Failed to get chats by user from database");
+    console.error("Failed to get chats by user from database. User Id: ", id);
     throw error;
   }
 }

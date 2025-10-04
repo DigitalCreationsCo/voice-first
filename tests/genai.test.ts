@@ -2,7 +2,9 @@
 import { GoogleGenAI } from '@google/genai';
 import { config } from 'dotenv';
 
-config();
+config({
+  path: ".env.local",
+});
 
 const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
 console.log('apiKey: ', apiKey);

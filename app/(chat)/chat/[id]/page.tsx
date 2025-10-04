@@ -21,7 +21,7 @@ export default async function Page({ request, response, params }: { params: any 
     messages: convertToUIMessages(chatFromDb.messages as Array<CoreMessage>),
   };
 
-  const session = auth()
+  const session = await auth()
 
   if (!session || !session.user) {
     return notFound();

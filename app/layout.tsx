@@ -4,6 +4,7 @@ import Navbar from "@/components/custom/navbar";
 import { ThemeProvider } from "@/components/custom/theme-provider";
 
 import "./globals.css";
+import { SessionProvider } from "next-auth/react";
 // import { setupGlobalLogger } from "@/lib/logger";
 
 export const metadata: Metadata = {
@@ -21,16 +22,18 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-          >
-          <Toaster position="top-center" />
-          <Navbar />
-          {children}
-        </ThemeProvider>
+        <SessionProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+            >
+            <Toaster position="top-center" />
+            <Navbar />
+            {children}
+          </ThemeProvider>
+        </SessionProvider>
       </body>
     </html>
   );

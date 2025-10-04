@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { redirect, useRouter } from "next/navigation";
 import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -11,6 +11,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { register, RegisterActionState } from "../actions";
 
 export default function Page() {
+  redirect("/");
   const router = useRouter();
 
   const [email, setEmail] = useState("");

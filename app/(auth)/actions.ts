@@ -15,6 +15,10 @@ export interface LoginActionState {
   status: "idle" | "in_progress" | "success" | "failed" | "invalid_data";
 }
 
+export const loginGoogle = async () => {
+  await signIn("google", { redirectTo: "/"});
+}
+
 export const login = async (
   _: LoginActionState,
   formData: FormData,

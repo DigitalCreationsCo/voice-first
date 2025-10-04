@@ -6,7 +6,9 @@ import { WebSocketServer } from 'ws';
 import { GoogleGenAI, Modality } from "@google/genai";
 import { config } from 'dotenv';
 
-config();
+config({
+  path: ".env.local",
+});
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -58,7 +60,7 @@ async function handleChatRequest(ws: any, message: any) {
         model: "gemini-2.0-flash",
         contents: history,
         config: {
-          maxOutputTokens: 200,
+          maxOutputTokens: 100,
         },
       });
 

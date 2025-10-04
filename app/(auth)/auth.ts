@@ -1,12 +1,11 @@
 import NextAuth from "next-auth"
 import "next-auth/jwt"
-
 import Google from "next-auth/providers/google"
-
 import { createStorage } from "unstorage"
 import memoryDriver from "unstorage/drivers/memory"
 import vercelKVDriver from "unstorage/drivers/vercel-kv"
 import { UnstorageAdapter } from "@auth/unstorage-adapter"
+import { createUser, getUser } from "@/db/queries"
 
 const storage = createStorage({
   driver: process.env.VERCEL
@@ -18,35 +17,59 @@ const storage = createStorage({
     : memoryDriver(),
 })
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  debug: !!process.env.AUTH_DEBUG,
+export const { handlers: { GET, POST }, auth, signIn, signOut } = NextAuth({
+  debug: process.env.NODE_ENV !== 'production',
   theme: { logo: "https://authjs.dev/img/logo-sm.png" },
   adapter: UnstorageAdapter(storage),
   providers: [
-    Google,
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    }),
   ],
-  basePath: "/auth",
   session: { strategy: "jwt" },
   callbacks: {
+    async signIn({ user }) {
+      console.log('signIn callback, user: ', user);
+      const userExists = await getUser(user.email!);
+      console.log('user exists in database: ', userExists);
+      if (!userExists) {
+        await createUser(user.email!, '');
+      }
+      return true;
+    },
+    
     authorized({ request, auth }) {
+      console.log('authorized callback, auth: ', auth);
+      // console.log('request: ', request);
       const { pathname } = request.nextUrl
       if (pathname === "/middleware-example") return !!auth
       return true
     },
-    jwt({ token, trigger, session, account }) {
+
+    async jwt({ user, token, trigger, session, account }) {
+      console.log('jwt callback');
+      console.log('token: ', token);
+      if (user?.email) {
+        const dbUser = await getUser(user.email)
+        if (dbUser) token.userId = dbUser.id
+      }
+
       if (trigger === "update") token.name = session.user.name
       if (account?.provider === "keycloak") {
         return { ...token, accessToken: account.access_token }
       }
       return token
     },
-    async session({ session, token }) {
-      if (token?.accessToken) session.accessToken = token.accessToken
 
+    async session({ session, token }) {
+      console.log('session callback, session: ', session);
+      console.log('token: ', token);
+      if (token?.accessToken) session.accessToken = token.accessToken;
+      if (token?.userId) session.user.id = token.userId as string;
       return session
     },
   },
-  experimental: { enableWebAuthn: true },
 })
 
 declare module "next-auth" {

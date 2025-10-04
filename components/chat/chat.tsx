@@ -576,7 +576,18 @@ export function MultimodalInput({
         )}
 
         {/* File upload button */}
-        {/* <Button */}
+        {/* <Button
+          className="rounded-full p-1.5 h-fit absolute bottom-2 right-30 m-0.5 dark:border-zinc-700"
+          onClick={(event) => {
+            event.preventDefault();
+            fileInputRef.current?.click();
+          }}
+          variant="outline"
+          disabled={isLoading || isListening}
+          type="button"
+        >
+          <PaperclipIcon size={14} />
+        </Button> */}
       </div>
     </div>
   );
