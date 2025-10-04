@@ -204,7 +204,6 @@ interface CreateUIMessage {
   timestamp?: number;
   isAudio?: boolean;
   audioData?: Uint8Array;
-  isComplete?: boolean;
 }
 
 export interface UIMessage {
@@ -214,7 +213,6 @@ export interface UIMessage {
   timestamp: number;
   isAudio: boolean;
   audioData?: Uint8Array;
-  isComplete: boolean;
 };
 
 export function buildUIMessage(props: CreateUIMessage):UIMessage {
@@ -225,7 +223,6 @@ export function buildUIMessage(props: CreateUIMessage):UIMessage {
     timestamp: Date.now(),
     isAudio: props.isAudio || false,
     audioData: props.audioData || undefined,
-    isComplete: props.isComplete || false
   };
 };
 
@@ -259,3 +256,14 @@ export function getWebSocketUrl(): string {
     return `${protocol}//${hostname}${port}/api/chat/websocket`;
   }
 }
+
+export function findLastIncompleteAssistantMessageIndex(messages: UIMessage[]) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role === 'assistant' && !message.isComplete) {
+      return i;
+    }
+  }
+  return null; 
+}
+

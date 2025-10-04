@@ -18,7 +18,7 @@ export const Overview = () => {
           <MessageIcon /> Say Hi to Chatter
         </p>
         <p>
-          Chatter is voice-first chat app designed for effortless, hands-free interaction or traditional typing. Press the microphone button to speak — Chatter hears your voice, transcribes it in real time, and responds for a fluid, natural conversation experience.
+          Chatter is a voice-first chat app designed for effortless, hands-free interaction or traditional typing. Press the microphone button to speak — Chatter hears your voice, transcribes it in real time, and responds for a fluid, natural conversation experience.
         </p>
       </div>
     </motion.div>

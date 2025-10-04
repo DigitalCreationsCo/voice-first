@@ -36,23 +36,32 @@ export const Message = ({
   onPlayAudio: () => void;isCurrentlyPlaying: boolean;
 }) => {
   return (
-    <motion.div className="w-full md:w-[550px] md:px-0 px-4 first-of-type:pt-20" initial={{ y: 5, opacity: 0 }}
-    animate={{ y: 0, opacity: 1 }}>
+    <motion.div
+      className="max-w-2xl w-full md:px-0 px-4 first-of-type:pt-20 flex justify-start"
+      initial={{ y: 5, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+    >
       <div
-        className={`w-fit max-w-full relative p-3 rounded-lg max-w-2xl leading-relaxed
+        className={`inline-flex flex-col items-start min-w-[120px] max-w-2xl w-fit relative p-3 rounded-lg leading-relaxed
           ${message.role === 'user'
-            ? 'bg-blue-500 text-white ml-auto text-right'
-            : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+            ? 'bg-blue-500 text-white ml-auto self-end'
+            : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 self-start'
           }`}
       >
-        <div className="text-left break-words whitespace-pre-wrap">
+        <div className={`flex flex-col items-start whitespace-pre-line
+          ${message.role === 'assistant'
+            ? 'self-start'
+            : 'self-end'
+          }`}>
           <span
-            className={`inline-block align-top w-5 h-5 border-[1.6px] rounded-sm p-0.5 overflow-clip
-              ${message.role === 'assistant' ? 'float-left mr-2 text-zinc-500 border-zinc-500' : 'float-right ml-2 order-last text-zinc-300 border-zinc-300'}`}
+            className={`flex-shrink-0 w-5 h-5 border-[1.6px] rounded-sm p-0.5 mr-2
+              ${message.role === 'assistant'
+                ? 'self-start text-zinc-500 border-zinc-500'
+                : 'self-end ml-2 text-zinc-300 border-zinc-300'
+              }`}
           >
             {message.role === 'assistant' ? <BotIcon /> : <UserIcon />}
           </span>
-
           <Markdown>{message.content}</Markdown>
         </div>
 

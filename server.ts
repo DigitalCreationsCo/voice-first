@@ -120,6 +120,7 @@ async function handleChatRequest(ws: any, message: any) {
 }
 
 async function handleTTSRequest(ws: any, message: any) {
+  console.log('handleTTSRequest called')
   if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
     ws.send(JSON.stringify({
       type: 'error',
@@ -129,7 +130,7 @@ async function handleTTSRequest(ws: any, message: any) {
   }
 
   try {
-    const { text, chunkIndex, parentRequestId } = message;
+    const { text, parentRequestId } = message;
     
     if (!text) {
       ws.send(JSON.stringify({
@@ -144,7 +145,6 @@ async function handleTTSRequest(ws: any, message: any) {
       type: "tts_stream_start",
       message: "Starting to generate TTS response",
       requestId: message.requestId,
-      chunkIndex: chunkIndex,
       parentRequestId: parentRequestId
     }));
 
@@ -164,6 +164,7 @@ async function handleTTSRequest(ws: any, message: any) {
       });
       
       let fullAudioBytes = new Uint8Array(0);
+      let audioChunkIndex = 0; // ✅ Track audio chunks separately
 
       for await (const chunk of result) {
         const candidate = chunk.candidates?.[0];
@@ -174,12 +175,14 @@ async function handleTTSRequest(ws: any, message: any) {
               ws.send(JSON.stringify({
                 type: "tts_stream_chunk",
                 content: part.inlineData.data,
-                chunkIndex: chunkIndex, 
+                chunkIndex: audioChunkIndex, 
                 parentRequestId: parentRequestId,
                 finish_reason: null,
                 requestId: message.requestId
               }));
       
+              audioChunkIndex++; // ✅ Increment for each audio chunk
+
               const audioChunk = Buffer.from(part.inlineData.data, 'base64');
               const merged = new Uint8Array(fullAudioBytes.length + audioChunk.length);
               merged.set(fullAudioBytes);
@@ -194,15 +197,15 @@ async function handleTTSRequest(ws: any, message: any) {
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({
           type: "tts_stream_complete",
-          content: fullAudioBytes,
-          chunkIndex: chunkIndex,
+          content: Buffer.from(fullAudioBytes).toString('base64'), // ✅ Convert to base64
+          chunkIndex: audioChunkIndex,
           parentRequestId: parentRequestId,
           finish_reason: "stop",
           requestId: message.requestId
         }));
       }
 
-      console.log(`TTS completed for chunk ${chunkIndex}`);
+      console.log(`TTS completed with ${audioChunkIndex} audio chunks`);
 
     } catch (streamError: any) {
       console.error('TTS stream generation error:', streamError);
@@ -210,7 +213,6 @@ async function handleTTSRequest(ws: any, message: any) {
         ws.send(JSON.stringify({
           type: "tts_error",
           error: streamError?.message || "Error generating tts response",
-          chunkIndex: chunkIndex,
           parentRequestId: parentRequestId,
           requestId: message.requestId
         }));
