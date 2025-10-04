@@ -26,6 +26,7 @@ import { PlayIcon, Square, Volume2 } from "lucide-react";
 import gemini from "@/lib/gemini";
 import { ChatWebSocketClient } from "@/lib/socket";
 import { convertInt16ToFloat32 } from "@/lib/speech-recognition-manager";
+import { Message } from "./message";
 
 export function Chat({
   id,
@@ -70,6 +71,10 @@ export function Chat({
     setAllowConcurrentRequests,
     setInterimResultDelay,
   } = useAudioManager();
+
+  useEffect(() => {
+    console.log('messages ', messages);
+  }, [messages]);
 
   useEffect(() => {
     const wsUrl = getWebSocketUrl()
@@ -121,12 +126,10 @@ export function Chat({
     stopRequest(currentlyPlayingMessageId!);
   }, [stopListening, stopPlayback]);
 
-  // Handle message submission
   const handleSubmitMessage = useCallback(async (text: string, isAudio = false) => {
     if (!text.trim() || isLoading || !clientRef.current?.isConnected) return;
 
     const messageId = generateMessageId();
-
     const userMessage = buildUIMessage({ id: messageId, role: "user", content: text, isAudio });
     const updatedMessages = [...messages, userMessage]
     setMessages(updatedMessages);
@@ -136,15 +139,18 @@ export function Chat({
     setAllowConcurrentRequests(true);
 
     try {
-      clientRef.current.sendChatMessage(updatedMessages, {
+      const chatRequestId = clientRef.current.sendChatMessage(updatedMessages, {
         onStreamStart: (message) => {
           console.log('Chat stream started');
         },
+
         onChunk: async (requestId, textChunk, chunkIndex) => {
           console.info('Chat chunk: ', textChunk);
           setIsLoading(true);
 
           setMessages(prev => {
+            
+            // incomplete messages will not propgogate correctly in UI
             const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && !msg.isComplete)
             const assistantMessage = prev[assistantMessageIndex];
             
@@ -152,7 +158,7 @@ export function Chat({
               return [
                 ...prev.slice(0, assistantMessageIndex), 
                 { ...assistantMessage, content: assistantMessage.content + textChunk },
-                ...prev.slice(assistantMessageIndex + 1, -1), 
+                ...prev.slice(assistantMessageIndex + 1), 
               ];
             }
 
@@ -162,15 +168,17 @@ export function Chat({
           });
 
         },
+
         onComplete: (fullResponse) => {
           console.log('onComplete full response: ', fullResponse);
           setTranscript('');
           setIsLoading(false);
 
-          // Probihitively expensive of cloud resources
-          // Better to call TTS request once with full text payload,
-          // and stream the tts response
-          clientRef.current?.sendTTSRequest(fullResponse, 0, 'requestId')
+          clientRef.current?.sendTTSRequest(
+            fullResponse, 
+            0, 
+            chatRequestId
+          )
 
           setMessages(prev => {
             const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && !msg.isComplete)
@@ -179,19 +187,20 @@ export function Chat({
             if (assistantMessage) {
               return [
                 ...prev.slice(0, assistantMessageIndex), 
-                { ...assistantMessage, content: fullResponse },
-                ...prev.slice(assistantMessageIndex + 1, -1), 
+                { ...assistantMessage, content: fullResponse, isComplete: true },
+                ...prev.slice(assistantMessageIndex + 1), 
               ];
             }
 
             return [...prev];
           });
         },
+
         onTTSStreamStart(message) {
           console.log('TTS stream started ', message);
         },
         onTTSChunk(requestId, audioChunk, audioChunkIndex) {
-          console.debug('TTS onChunk');
+          console.debug('TTS onChunk, index: ', audioChunkIndex);
 
           enqueueAudioChunk(
             requestId, 
@@ -200,8 +209,11 @@ export function Chat({
             messageId
           );
         },
-        onTTSComplete(fullAudio, chunkIndex) {
-          console.log('TTS complete');
+
+        onTTSComplete(requestId, fullAudio, chunkIndex) {
+          console.log('TTS complete for request: ', requestId);
+
+          markRequestComplete(requestId);
 
           setMessages(prev => {
             const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && !msg.isComplete)
@@ -211,7 +223,7 @@ export function Chat({
               return [
                 ...prev.slice(0, assistantMessageIndex), 
                 { ...assistantMessage, audioData: decode(fullAudio), isComplete: true },
-                ...prev.slice(assistantMessageIndex + 1, -1), 
+                ...prev.slice(assistantMessageIndex + 1), 
               ];
             }
 
@@ -228,7 +240,7 @@ export function Chat({
       setError(err.message || 'Failed to send message');
       setIsLoading(false);
     }
-  }, [messages]);
+  }, [messages, enqueueAudioChunk, markRequestComplete]);
 
   const handleStartListening = useCallback(() => {
     try {
@@ -257,57 +269,28 @@ export function Chat({
         >
           {messages.length === 0 && <Overview />}
           
-          Audiocontext initialized: {String(isInitialized)}
+          {/* Audiocontext initialized: {String(isInitialized)}
           <br/>
           Transcript(test): {transcript}
           <br/>
-          Interim Transcript(test): {interimTranscript}
+          Interim Transcript(test): {interimTranscript} */}
 
           {messages.map((message) => (
-            // <Message 
-            //   key={message.id}
-            //   chatId={id}
-            //   role={message.role}
-            //   content={message.content}
-            //   // toolInvocations={message.toolInvocations}
-            //   // attachments={message.attachments}
-            // />
-            <div key={message.id} className="w-full max-w-2xl px-4">
-              <div className={`flex flex-row ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] p-3 rounded-lg ${
-                  message.role === 'user' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-                }`}>
-                  <p className="whitespace-pre-wrap">{message.content}</p>
-                  {message.role === 'assistant' && message.audioData && (
-                    <div className="flex justify-end items-center gap-2 mt-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => 
-                          currentlyPlayingMessageId === message.id
-                            ? stopPlayback()
-                            : playMessageAudio(message.audioData!, message.id)
-                        }
-                        disabled={isPlaying && currentlyPlayingMessageId !== message.id}
-                        className="text-xs"
-                      >
-                        {currentlyPlayingMessageId === message.id ? (
-                          <>
-                            <Square size={12} />
-                          </>
-                        ) : (
-                          <>
-                            <PlayIcon size={12} />
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+            <>
+            <Message 
+              key={message.id}
+              chatId={id}
+              message={message}
+              isPlayAudioDisabled={isPlaying && currentlyPlayingMessageId !== message.id}
+              onPlayAudio={() => 
+                currentlyPlayingMessageId === message.id
+                  ? stopPlayback()
+                  : playMessageAudio(message.audioData!, message.id)}
+              isCurrentlyPlaying={currentlyPlayingMessageId === message.id}
+              // toolInvocations={message.toolInvocations}
+              // attachments={message.attachments}
+            />
+            </>
           ))}
 
           {/* Show interim transcript */}
@@ -315,7 +298,7 @@ export function Chat({
             <div className="w-full max-w-2xl px-4">
               <div className="flex justify-end">
                 <div className="max-w-[80%] p-3 rounded-lg bg-blue-400 text-white opacity-70">
-                  <p className="whitespace-pre-wrap">{interimTranscript}</p>
+                  <p className="">{interimTranscript}</p>
                   <div className="text-xs mt-1">Speaking...</div>
                 </div>
               </div>
@@ -504,7 +487,7 @@ export function MultimodalInput({
       toggleVoiceInput={toggleVoiceInput}
       />
 
-      <input
+      {/* <input
         type="file"
         className="fixed -top-4 -left-4 size-0.5 opacity-0 pointer-events-none"
         ref={fileInputRef}
@@ -531,7 +514,7 @@ export function MultimodalInput({
             />
           ))}
         </div>
-      )}
+      )} */}
 
       {/* Voice input status */}
       {(isListening || interimTranscript) && (
@@ -580,7 +563,7 @@ export function MultimodalInput({
           </Button>
         ) : (
           <Button
-            className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 text-white"
+            className="bg-blue-500 rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 text-white"
             onClick={(event) => {
               event.preventDefault();
               submitForm();
@@ -593,18 +576,7 @@ export function MultimodalInput({
         )}
 
         {/* File upload button */}
-        <Button
-          className="rounded-full p-1.5 h-fit absolute bottom-2 right-30 m-0.5 dark:border-zinc-700"
-          onClick={(event) => {
-            event.preventDefault();
-            fileInputRef.current?.click();
-          }}
-          variant="outline"
-          disabled={isLoading || isListening}
-          type="button"
-        >
-          <PaperclipIcon size={14} />
-        </Button>
+        {/* <Button */}
       </div>
     </div>
   );

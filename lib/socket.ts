@@ -1,4 +1,13 @@
-// WebSocket client implementation
+export interface ChatMessageCallbacks {
+  onStreamStart?: (message: any) => void;
+  onChunk?: (requestId: string, chunk: string, chunkIndex: number) => void;
+  onComplete?: (fullResponse: string) => void;
+  onError?: (error: string) => void;
+  onTTSStreamStart?: (message: any) => void;
+  onTTSChunk?: (requestId: string, audioChunk: string, chunkIndex: number) => void;
+  onTTSComplete?: (requestId: string, fullAudio: string, chunkIndex: number) => void;
+}
+
 class ChatWebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -142,7 +151,7 @@ class ChatWebSocketClient {
   private handleTTSStreamComplete(message: any) {
     const request = this.pendingRequests.get(message.parentRequestId);
     if (request && request.onTTSComplete) {
-      request.onTTSComplete(message.content, message.chunkIndex); 
+      request.onTTSComplete(message.requestId, message.content, message.chunkIndex); 
     }
   }
 
@@ -174,15 +183,7 @@ class ChatWebSocketClient {
   
   sendChatMessage(
     messages: any[],
-    callbacks: {
-      onStreamStart?: (message: any) => void;
-      onChunk?: (requestId: string, chunk: string, chunkIndex: number) => void;
-      onComplete?: (fullResponse: string) => void;
-      onError?: (error: string) => void;
-      onTTSStreamStart?: (message: any) => void;
-      onTTSChunk?: (requestId: string, audioChunk: string, chunkIndex: number) => void;
-      onTTSComplete?: (fullAudio: string, chunkIndex: number) => void;
-    }
+    callbacks: ChatMessageCallbacks
   ): string {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket is not connected');

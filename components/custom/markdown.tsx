@@ -32,7 +32,7 @@ const NonMemoizedMarkdown = ({ children }: { children: string }) => {
     },
     li: ({ node, children, ...props }: any) => {
       return (
-        <li className="py-1" {...props}>
+        <li className="" {...props}>
           {children}
         </li>
       );

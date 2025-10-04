@@ -8,8 +8,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://gemini.vercel.ai"),
-  title: "Voice First",
-  description: "Voice-first chatbot template using the AI SDK and Gemini.",
+  title: "Chatter",
+  description: "Chatter is voice-first chat app designed for effortless, hands-free interaction or traditional typing. Press the microphone button to speak — Chatter hears your voice, transcribes it in real time, and responds for a fluid, natural conversation experience.",
 };
 
 export default async function RootLayout({
