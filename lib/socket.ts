@@ -135,14 +135,14 @@ class ChatWebSocketClient {
   private handleTTSStreamChunk(message: any) {
     const request = this.pendingRequests.get(message.parentRequestId);
     if (request && request.onTTSChunk) {
-      request.onTTSChunk(message.requestId, message.content, message.chunkIndex); // Pass chunkIndex
+      request.onTTSChunk(message.requestId, message.content, message.chunkIndex); 
     }
   }
 
   private handleTTSStreamComplete(message: any) {
     const request = this.pendingRequests.get(message.parentRequestId);
     if (request && request.onTTSComplete) {
-      request.onTTSComplete(message.content, message.chunkIndex); // Pass chunkIndex
+      request.onTTSComplete(message.content, message.chunkIndex); 
     }
   }
 
@@ -164,7 +164,7 @@ class ChatWebSocketClient {
         console.log(`Attempting to reconnect (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
         this.reconnectAttempts++;
         this.connect().catch(console.error);
-      }, this.reconnectDelay * Math.pow(2, this.reconnectAttempts)); // Exponential backoff
+      }, this.reconnectDelay * Math.pow(2, this.reconnectAttempts)); 
     }
   }
 

@@ -138,7 +138,7 @@ export function Chat({
     try {
       clientRef.current.sendChatMessage(updatedMessages, {
         onStreamStart: (message) => {
-          console.log('Chat tream started');
+          console.log('Chat stream started');
         },
         onChunk: async (requestId, textChunk, chunkIndex) => {
           console.info('Chat chunk: ', textChunk);
@@ -146,7 +146,7 @@ export function Chat({
 
           setMessages(prev => {
             const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && !msg.isComplete)
-            const assistantMessage = messages[assistantMessageIndex];
+            const assistantMessage = prev[assistantMessageIndex];
             
             if (assistantMessage) {
               return [
@@ -161,17 +161,20 @@ export function Chat({
               buildUIMessage({ role: 'assistant', content: textChunk, isComplete: false })];
           });
 
-          clientRef.current?.sendTTSRequest(textChunk, chunkIndex, requestId)
-
         },
         onComplete: (fullResponse) => {
-          console.log('onComplete full response, ', fullResponse);
+          console.log('onComplete full response: ', fullResponse);
           setTranscript('');
           setIsLoading(false);
 
+          // Probihitively expensive of cloud resources
+          // Better to call TTS request once with full text payload,
+          // and stream the tts response
+          clientRef.current?.sendTTSRequest(fullResponse, 0, 'requestId')
+
           setMessages(prev => {
             const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && !msg.isComplete)
-            const assistantMessage = messages[assistantMessageIndex];
+            const assistantMessage = prev[assistantMessageIndex];
             
             if (assistantMessage) {
               return [
@@ -202,7 +205,7 @@ export function Chat({
 
           setMessages(prev => {
             const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && !msg.isComplete)
-            const assistantMessage = messages[assistantMessageIndex];
+            const assistantMessage = prev[assistantMessageIndex];
             
             if (assistantMessage) {
               return [
@@ -277,7 +280,7 @@ export function Chat({
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
                 }`}>
                   <p className="whitespace-pre-wrap">{message.content}</p>
-                  {message.role === 'assistant' && (
+                  {message.role === 'assistant' && message.audioData && (
                     <div className="flex justify-end items-center gap-2 mt-2">
                       <Button
                         size="sm"

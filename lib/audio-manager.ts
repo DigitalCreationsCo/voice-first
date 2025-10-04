@@ -39,7 +39,7 @@ class OrderedAudioQueueManager {
   }
 
   /**
-   * Add audio chunk to ordered queue
+   * Add audio chunk to ordered queue. 
    * Returns true if chunk is ready to play immediately
    */
   enqueueChunk(
@@ -610,6 +610,8 @@ class AudioManager {
 }
 
 export function convertInt16ToFloat32(int16Array: Uint8Array): Float32Array {
+  console.info('convertInt16ToFloat32 input: ', int16Array);
+  
   const int16 = new Int16Array(int16Array.buffer, int16Array.byteOffset, int16Array.length / 2);
   const float32 = new Float32Array(int16.length);
   for (let i = 0; i < int16.length; i++) {

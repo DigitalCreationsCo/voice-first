@@ -57,6 +57,9 @@ async function handleChatRequest(ws: any, message: any) {
       const result = await genAI.models.generateContentStream({
         model: "gemini-2.0-flash",
         contents: history,
+        config: {
+          maxOutputTokens: 200,
+        },
       });
 
       let fullResponse = '';
