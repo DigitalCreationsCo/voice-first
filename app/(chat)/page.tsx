@@ -49,10 +49,6 @@ export default async function Page() {
   const id = generateMessageId();
   return (
     <>
-    <div className="absolute flex flex-row p-3 gap-4 items-center text-lg text-zinc-900 dark:text-zinc-50">
-      <MessageIcon />
-      <h1>Chatter</h1>
-    </div>
     <Chat key={id} id={id} initialMessages={initialMessages} />
     </>
   )

@@ -18,7 +18,7 @@ import {
   MoreHorizontalIcon,
   PencilEditIcon,
   TrashIcon,
-} from "./icons";
+} from "@/components/custom/icons";
 import {
   AlertDialog,
   AlertDialogAction,
