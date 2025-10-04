@@ -7,7 +7,7 @@
   },
   "homepage": "https://next-auth-example.vercel.app",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "node server.ts",
     "build": "tsx db/migrate && next build",
     "start": "next start",
     "lint": "next lint",

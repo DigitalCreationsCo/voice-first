@@ -68,8 +68,21 @@ class ChatWebSocketClient {
         case 'stream_complete':
           this.handleStreamComplete(message);
           break;
+
+        case 'tts_stream_start':
+          this.handleTTSStreamStart(message);
+          break;
+
+        case 'tts_stream_chunk':
+          this.handleTTSStreamChunk(message);
+          break;
+        
+        case 'tts_stream_complete':
+          this.handleTTSStreamComplete(message);
+          break;
         
         case 'error':
+        case 'tts_error':
           this.handleError(message);
           break;
         
@@ -78,7 +91,6 @@ class ChatWebSocketClient {
           break;
         
         case 'heartbeat':
-          // Server heartbeat - connection is alive
           break;
         
         default:
@@ -97,22 +109,40 @@ class ChatWebSocketClient {
   }
 
   private handleStreamChunk(message: any) {
-    console.log('handleStreamChunk: ', message);
-
     const request = this.pendingRequests.get(message.requestId);
     if (request && request.onChunk) {
-      request.onChunk(message.content);
+      request.onChunk(message.requestId, message.content, message.chunkIndex);
     }
   }
 
   private handleStreamComplete(message: any) {
-    console.log('handleStreamComplete: ', message);
     const request = this.pendingRequests.get(message.requestId);
     if (request) {
       if (request.onComplete) {
         request.onComplete(message.content);
       }
       this.pendingRequests.delete(message.requestId);
+    }
+  }
+
+  private handleTTSStreamStart(message: any) {
+    const request = this.pendingRequests.get(message.parentRequestId);
+    if (request && request.onTTSStreamStart) {
+      request.onTTSStreamStart(message);
+    }
+  }
+
+  private handleTTSStreamChunk(message: any) {
+    const request = this.pendingRequests.get(message.parentRequestId);
+    if (request && request.onTTSChunk) {
+      request.onTTSChunk(message.requestId, message.content, message.chunkIndex); // Pass chunkIndex
+    }
+  }
+
+  private handleTTSStreamComplete(message: any) {
+    const request = this.pendingRequests.get(message.parentRequestId);
+    if (request && request.onTTSComplete) {
+      request.onTTSComplete(message.content, message.chunkIndex); // Pass chunkIndex
     }
   }
 
@@ -146,9 +176,12 @@ class ChatWebSocketClient {
     messages: any[],
     callbacks: {
       onStreamStart?: (message: any) => void;
-      onChunk?: (chunk: string) => void;
+      onChunk?: (requestId: string, chunk: string, chunkIndex: number) => void;
       onComplete?: (fullResponse: string) => void;
       onError?: (error: string) => void;
+      onTTSStreamStart?: (message: any) => void;
+      onTTSChunk?: (requestId: string, audioChunk: string, chunkIndex: number) => void;
+      onTTSComplete?: (fullAudio: string, chunkIndex: number) => void;
     }
   ): string {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -157,7 +190,6 @@ class ChatWebSocketClient {
 
     const requestId = (++this.requestIdCounter).toString();
     
-    // Store callbacks for this request
     this.pendingRequests.set(requestId, callbacks);
 
     const message = {
@@ -172,23 +204,20 @@ class ChatWebSocketClient {
 
   async sendTTSRequest(
     text: string,
-    callbacks: {
-      onStreamStart?: (message: any) => void;
-      onChunk?: (chunk: string) => void;
-      onComplete?: (fullResponse: string) => void;
-      onError?: (error: string) => void;
-    }
+    chunkIndex: number,
+    parentRequestId: string,
   ) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket is not connected');
     }
 
     const requestId = (++this.requestIdCounter).toString();
-    this.pendingRequests.set(requestId, callbacks); 
 
     const message = {
       type: 'tts_request',
       text,
+      chunkIndex,
+      parentRequestId,
       requestId
     };
 
@@ -228,47 +257,6 @@ class ChatWebSocketClient {
 
   get isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
-  }
-}
-
-// Usage example
-async function exampleUsage() {
-  const client = new ChatWebSocketClient('ws://localhost:3000/api/chat/websocket');
-  
-  try {
-    await client.connect();
-    console.log('Connected to WebSocket');
-
-    const messages = [
-      { role: 'user', content: 'Hello! Can you help me with JavaScript?' }
-    ];
-
-    let fullResponse = '';
-
-    const requestId = client.sendChatMessage(messages, {
-      onStreamStart: (message) => {
-        console.log('Stream started:', message.message);
-      },
-      onChunk: (chunk) => {
-        fullResponse += chunk;
-        console.log('Received chunk:', chunk);
-        // Update UI with new chunk
-      },
-      onComplete: (response) => {
-        console.log('Stream completed. Full response:', response);
-        // Update UI to show completion
-      },
-      onError: (error) => {
-        console.error('Stream error:', error);
-        // Show error in UI
-      }
-    });
-
-    // You can cancel the request if needed
-    // setTimeout(() => client.cancelRequest(requestId), 5000);
-
-  } catch (error) {
-    console.error('Failed to connect:', error);
   }
 }
 

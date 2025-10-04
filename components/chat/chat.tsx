@@ -21,13 +21,11 @@ import { Textarea } from "../ui/textarea";
 import { buildUIMessage, decode, generateMessageId, getWebSocketUrl, UIMessage } from "@/lib/utils";
 import { SuggestedActions } from "./suggested-actions";
 import { VoiceInputButton } from "./voice-input-button";
-import { Message } from "./message";
 import { useAudioManager } from "@/hooks/use-audio-manager";
 import { PlayIcon, Square, Volume2 } from "lucide-react";
 import gemini from "@/lib/gemini";
 import { ChatWebSocketClient } from "@/lib/socket";
-import build from "next/dist/build";
-
+import { convertInt16ToFloat32 } from "@/lib/speech-recognition-manager";
 
 export function Chat({
   id,
@@ -47,24 +45,31 @@ export function Chat({
   const clientRef = useRef<ChatWebSocketClient | null>(null);
 
   const {
+    isInitialized,
+    isListening,
+    isPlaying,
+    currentlyPlayingMessageId,
+
+    enqueueAudioChunk,
+    markRequestComplete,
+    playMessageAudio,
+    playAudioDirect,
+    stopPlayback,
+    stopRequest,
+
     startListening,
     stopListening,
-    isListening,
+    correctTranscription,
     transcript,
     setTranscript,
     interimTranscript,
     setInterimTranscript,
-    synthesizeSpeechStream,
-    playMessageAudio,
-    stopPlayback,
-    playFallbackSpeech,
-    isPlayingAudio,
-    currentlyPlayingId,
-    isInitialized,
-    playAudioBufferDirect
-  } = useAudioManager();
 
-  const abortControllerRef = useRef<AbortController | null>(null);
+    playFallbackSpeech,
+    getQueueStats,
+    setAllowConcurrentRequests,
+    setInterimResultDelay,
+  } = useAudioManager();
 
   useEffect(() => {
     const wsUrl = getWebSocketUrl()
@@ -96,118 +101,119 @@ export function Chat({
 
   // Auto-stop playback when voice input
   useEffect(() => {
-    if (isPlayingAudio && interimTranscript) {
+    if (isPlaying && isListening && interimTranscript) {
       console.info('User input detected. Interrupting audio playback.')
       stopPlayback();
     }
-  }, [isPlayingAudio, interimTranscript])
+  }, [isPlaying, isListening, interimTranscript])
 
   // Handle final transcript from voice input
   useEffect(() => {
-    if (transcript && !isLoading) {
+    if (isListening && transcript && !isLoading) {
       handleSubmitMessage(transcript, true);
     }
   }, [transcript]);
 
   const stop = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
     setIsLoading(false);
     stopListening();
     stopPlayback();
+    stopRequest(currentlyPlayingMessageId!);
   }, [stopListening, stopPlayback]);
 
   // Handle message submission
   const handleSubmitMessage = useCallback(async (text: string, isAudio = false) => {
     if (!text.trim() || isLoading || !clientRef.current?.isConnected) return;
 
-    const userMessage = buildUIMessage({ content: text, role: "user", isAudio });
-    const updatedMessages = [...messages, userMessage] 
+    const messageId = generateMessageId();
+
+    const userMessage = buildUIMessage({ id: messageId, role: "user", content: text, isAudio });
+    const updatedMessages = [...messages, userMessage]
     setMessages(updatedMessages);
 
     setInput('');
     setIsLoading(true);
+    setAllowConcurrentRequests(true);
 
     try {
       clientRef.current.sendChatMessage(updatedMessages, {
         onStreamStart: (message) => {
-          console.log('Stream started');
+          console.log('Chat tream started');
         },
-        onChunk: async (chunk) => {
-          console.info('onChunk: ', chunk);
-
+        onChunk: async (requestId, textChunk, chunkIndex) => {
+          console.info('Chat chunk: ', textChunk);
           setIsLoading(true);
 
-          clientRef.current!.sendTTSRequest(chunk, {
-            onStreamStart(message) {
-              console.log('TTS stream started');
-            },
-            onChunk(audioString: string) {
-              console.debug('TTS onChunk: ');
-              console.info('text: ', chunk);
-              console.info('base64 audio: ', audioString);
-              function base64ToUint8Array(base64: string): Uint8Array {
-                const binaryString = atob(base64); // decode base64 to binary string
-                const len = binaryString.length;
-                const bytes = new Uint8Array(len);
-                for (let i = 0; i < len; i++) {
-                  bytes[i] = binaryString.charCodeAt(i);
-                }
-                return bytes;
-              }
-              
-              const audioData = base64ToUint8Array(audioString);
-
-              setMessages(prev => {
-                const last = prev[prev.length - 1];
-                if (last?.role === 'assistant' && !last.isComplete) {
-                  return [...prev.slice(0, -1), { ...last, audioData }];
-                }
-                return [
-                  ...prev, 
-                  buildUIMessage({ role: 'assistant', content: chunk, isComplete: false })];
-              });
-              
-              // get messageId here, pass in function
-              playAudioBufferDirect(audioData);
-            },
-            onComplete(fullAudioData: string) {
-              console.log('TTS onComplete full audio, ', fullAudioData);
-
-              setMessages(prev => {
-                const lastAssistantMessageIndex = findLastIncompleteAssistantMessageIndex(messages)
-                if (lastAssistantMessageIndex !== null) {
-                  const lastAssistantMessage = messages[lastAssistantMessageIndex]
-                  return [
-                    ...prev,
-                    { ...lastAssistantMessage, audioData: fullAudioData, isComplete: true }
-                  ];
-                }
-                return [ ...prev] // this is a bug - must successfully resolve messages!
-                });
-            },
-            onError(error) {
-              setError(error);
-              setIsLoading(false);
-            },
-          })
-
           setMessages(prev => {
-            const last = prev[prev.length - 1];
-            if (last?.role === 'assistant' && !last.isComplete) {
-              return [...prev.slice(0, -1), { ...last, content: last.content + chunk }];
+            const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && !msg.isComplete)
+            const assistantMessage = messages[assistantMessageIndex];
+            
+            if (assistantMessage) {
+              return [
+                ...prev.slice(0, assistantMessageIndex), 
+                { ...assistantMessage, content: assistantMessage.content + textChunk },
+                ...prev.slice(assistantMessageIndex + 1, -1), 
+              ];
             }
+
             return [
               ...prev, 
-              buildUIMessage({ role: 'assistant', content: chunk, isComplete: false })];
+              buildUIMessage({ role: 'assistant', content: textChunk, isComplete: false })];
           });
+
+          clientRef.current?.sendTTSRequest(textChunk, chunkIndex, requestId)
+
         },
         onComplete: (fullResponse) => {
           console.log('onComplete full response, ', fullResponse);
           setTranscript('');
           setIsLoading(false);
+
+          setMessages(prev => {
+            const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && !msg.isComplete)
+            const assistantMessage = messages[assistantMessageIndex];
+            
+            if (assistantMessage) {
+              return [
+                ...prev.slice(0, assistantMessageIndex), 
+                { ...assistantMessage, content: fullResponse },
+                ...prev.slice(assistantMessageIndex + 1, -1), 
+              ];
+            }
+
+            return [...prev];
+          });
+        },
+        onTTSStreamStart(message) {
+          console.log('TTS stream started ', message);
+        },
+        onTTSChunk(requestId, audioChunk, audioChunkIndex) {
+          console.debug('TTS onChunk');
+
+          enqueueAudioChunk(
+            requestId, 
+            audioChunkIndex,
+            decode(audioChunk),
+            messageId
+          );
+        },
+        onTTSComplete(fullAudio, chunkIndex) {
+          console.log('TTS complete');
+
+          setMessages(prev => {
+            const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && !msg.isComplete)
+            const assistantMessage = messages[assistantMessageIndex];
+            
+            if (assistantMessage) {
+              return [
+                ...prev.slice(0, assistantMessageIndex), 
+                { ...assistantMessage, audioData: decode(fullAudio), isComplete: true },
+                ...prev.slice(assistantMessageIndex + 1, -1), 
+              ];
+            }
+
+            return [...prev];
+          });
         },
         onError: (errorMsg) => {
           setError(errorMsg);
@@ -219,11 +225,11 @@ export function Chat({
       setError(err.message || 'Failed to send message');
       setIsLoading(false);
     }
-  }, [messages, ]);
+  }, [messages]);
 
   const handleStartListening = useCallback(() => {
     try {
-      if (isPlayingAudio) {
+      if (isPlaying) {
         toast.info('Please wait for audio to finish');
         return;
       }
@@ -233,7 +239,7 @@ export function Chat({
       console.error('Failed to start listening:', error);
       toast.error('An error occurred while initializing');
     }
-  }, [isInitialized, isPlayingAudio, startListening]);
+  }, [isInitialized, isPlaying, startListening]);
 
   const handleStopListening = useCallback(() => {
     stopListening();
@@ -277,14 +283,14 @@ export function Chat({
                         size="sm"
                         variant="outline"
                         onClick={() => 
-                          currentlyPlayingId === message.id
+                          currentlyPlayingMessageId === message.id
                             ? stopPlayback()
                             : playMessageAudio(message.audioData!, message.id)
                         }
-                        disabled={isPlayingAudio && currentlyPlayingId !== message.id}
+                        disabled={isPlaying && currentlyPlayingMessageId !== message.id}
                         className="text-xs"
                       >
-                        {currentlyPlayingId === message.id ? (
+                        {currentlyPlayingMessageId === message.id ? (
                           <>
                             <Square size={12} />
                           </>
@@ -347,7 +353,7 @@ export function Chat({
             handleStartListening={handleStartListening}
             handleStopListening={handleStopListening}
             interimTranscript={interimTranscript}
-            isPlayingAudio={isPlayingAudio}
+            isPlaying={isPlaying}
           />
         </form>
       </div>
@@ -368,7 +374,7 @@ export function MultimodalInput({
   handleStartListening,
   handleStopListening,
   interimTranscript,
-  isPlayingAudio,
+  isPlaying,
 }: {
   input?: string;
   setInput?: (value: string) => void;
@@ -382,7 +388,7 @@ export function MultimodalInput({
   handleStartListening: () => void;
   handleStopListening: () => void;
   interimTranscript?: string;
-  isPlayingAudio?: boolean;
+  isPlaying?: boolean;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
@@ -612,3 +618,4 @@ function findLastIncompleteAssistantMessageIndex(messages: UIMessage[]) {
   }
   return null; // Return null if no matching message is found
 }
+

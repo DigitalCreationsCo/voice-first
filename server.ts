@@ -60,6 +60,7 @@ async function handleChatRequest(ws: any, message: any) {
       });
 
       let fullResponse = '';
+      let chunkIndex = 0; 
 
       // Stream response chunks
       for await (const chunk of result) {
@@ -70,9 +71,12 @@ async function handleChatRequest(ws: any, message: any) {
           ws.send(JSON.stringify({
             type: "stream_chunk",
             content: text,
+            chunkIndex: chunkIndex,
             finish_reason: null,
             requestId: message.requestId
           }));
+
+          chunkIndex++;
         }
       }
 
@@ -81,6 +85,7 @@ async function handleChatRequest(ws: any, message: any) {
         ws.send(JSON.stringify({
           type: "stream_complete",
           content: fullResponse,
+          totalChunks: chunkIndex,
           finish_reason: "stop",
           requestId: message.requestId
         }));
@@ -119,7 +124,7 @@ async function handleTTSRequest(ws: any, message: any) {
   }
 
   try {
-    const { text } = message;
+    const { text, chunkIndex, parentRequestId } = message;
     
     if (!text) {
       ws.send(JSON.stringify({
@@ -131,9 +136,11 @@ async function handleTTSRequest(ws: any, message: any) {
 
     // Send stream start event
     ws.send(JSON.stringify({
-      type: "stream_start",
-      message: "Starting to generate response",
-      requestId: message.requestId
+      type: "tts_stream_start",
+      message: "Starting to generate TTS response",
+      requestId: message.requestId,
+      chunkIndex: chunkIndex,
+      parentRequestId: parentRequestId
     }));
 
     try {
@@ -141,7 +148,7 @@ async function handleTTSRequest(ws: any, message: any) {
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text }] }],
         config: {
-          maxOutputTokens: 1000,
+          maxOutputTokens: 200,
           responseModalities: [Modality.AUDIO],
           speechConfig: {
             voiceConfig: { 
@@ -160,8 +167,10 @@ async function handleTTSRequest(ws: any, message: any) {
             if (part.inlineData && part.inlineData.data && ws.readyState === ws.OPEN) {
 
               ws.send(JSON.stringify({
-                type: "stream_chunk",
+                type: "tts_stream_chunk",
                 content: part.inlineData.data,
+                chunkIndex: chunkIndex, 
+                parentRequestId: parentRequestId,
                 finish_reason: null,
                 requestId: message.requestId
               }));
@@ -179,21 +188,25 @@ async function handleTTSRequest(ws: any, message: any) {
       // Send completion signal
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({
-          type: "stream_complete",
+          type: "tts_stream_complete",
           content: fullAudioBytes,
+          chunkIndex: chunkIndex,
+          parentRequestId: parentRequestId,
           finish_reason: "stop",
           requestId: message.requestId
         }));
       }
 
-      console.log(`TTS completed`);
+      console.log(`TTS completed for chunk ${chunkIndex}`);
 
     } catch (streamError: any) {
       console.error('TTS stream generation error:', streamError);
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({
-          type: "error",
+          type: "tts_error",
           error: streamError?.message || "Error generating tts response",
+          chunkIndex: chunkIndex,
+          parentRequestId: parentRequestId,
           requestId: message.requestId
         }));
       }
@@ -203,7 +216,7 @@ async function handleTTSRequest(ws: any, message: any) {
     console.error('TTS request error:', error);
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({
-        type: 'error',
+        type: 'tts_error',
         error: error?.message || "Error processing tts request",
         requestId: message.requestId
       }));

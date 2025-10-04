@@ -1,6 +1,7 @@
 // useAudioManager.ts
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { SpeechRecognitionManager } from '@/lib/speech';
+import { SpeechRecognitionManager } from '@/lib/speech-recognition-manager';
+import { toast } from 'sonner';
 
 interface UseAudioManagerReturn {
   // Speech Recognition
@@ -22,8 +23,8 @@ interface UseAudioManagerReturn {
   playMessageAudio: (audioData: any, messageId: string) => void;
   stopPlayback: () => void;
   playFallbackSpeech: (text:string, messageId: string) => void;
-  isPlayingAudio: boolean;
-  currentlyPlayingId: string | null;
+  isPlaying: boolean;
+  currentlyPlayingMessageId: string | null;
   
   // State
   isInitialized: boolean;
@@ -31,25 +32,32 @@ interface UseAudioManagerReturn {
   playAudioBufferDirect: (data: Uint8Array) => void;
 }
 
-export function useAudioManager(): UseAudioManagerReturn {
-  const [isListening, setIsListening] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [interimTranscript, setInterimTranscript] = useState('');
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [currentlyPlayingId, setCurrentlyPlayingId] = useState<string | null>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
+interface AudioManagerOptions {
+  allowConcurrentRequests?: boolean;
+  maxQueueSize?: number;
+  queueEvictionTimeMs?: number;
+}
 
-  // Single manager instance
+export function useAudioManager(options?: AudioManagerOptions) {
   const managerRef = useRef<SpeechRecognitionManager | null>(null);
 
-  // Initialize once on mount
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentlyPlayingMessageId, setCurrentlyPlayingMessageId] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState('');
+  const [interimTranscript, setInterimTranscript] = useState('');
+
+  // Initialize manager
   useEffect(() => {
     const initializeManager = async () => {
       console.log('Initializing SpeechRecognitionManager')
       try {
-        managerRef.current = new SpeechRecognitionManager();
-        await managerRef.current.initialize();
-        setIsInitialized(true);
+        if (!managerRef.current) {
+          managerRef.current = new SpeechRecognitionManager(options);
+          await managerRef.current.initialize();
+          setIsInitialized(true);
+        }
       } catch (error) {
         console.error('Error initializing audio manager:', error);
       }
@@ -71,16 +79,100 @@ export function useAudioManager(): UseAudioManagerReturn {
       document.removeEventListener('click', handleUserInteraction);
       document.removeEventListener('keydown', handleUserInteraction);
       if (managerRef.current) {
-        managerRef.current.stopListening();
         managerRef.current.destroy();
+        managerRef.current = null;
       }
     };
   }, []);
 
+  // Playback state change handler
+  const handlePlaybackStateChange = useCallback((playing: boolean, messageId: string | null) => {
+    setIsPlaying(playing);
+    setCurrentlyPlayingMessageId(messageId);
+  }, []);
+
+  // Enqueue ordered audio chunk
+  const enqueueAudioChunk = useCallback(async (
+    requestId: string,
+    chunkIndex: number,
+    audioData: Uint8Array,
+    messageId: string
+  ) => {
+    if (!managerRef.current) return;
+    await managerRef.current.processStreamedAudioChunk(
+      requestId,
+      chunkIndex,
+      audioData,
+      messageId,
+      handlePlaybackStateChange
+    );
+  }, [handlePlaybackStateChange]);
+
+  // Mark request complete
+  const markRequestComplete = useCallback((requestId: string) => {
+    if (!managerRef.current) return;
+    managerRef.current.markRequestComplete(requestId);
+  }, []);
+
+  // const synthesizeSpeech = useCallback(async (text: string, messageId: string) => {
+  //   if (!managerRef.current || !isInitialized) {
+  //     console.error('Audio manager not initialized');
+  //     throw Error('Audio manager not initialized');
+  //   }
+
+  //   try {
+  //     const audioData = await managerRef.current.synthesizeSpeech(
+  //       text,
+  //       messageId,
+  //       (isPlaying, msgId) => {
+  //         setIsPlaying(isPlaying);
+  //         setCurrentlyPlayingMessageId(msgId);
+  //       }
+  //     );
+  //     return audioData;
+  //   } catch (error) {
+  //     console.error('Error synthesizing speech:', error);
+  //     setIsPlaying(false);
+  //     setCurrentlyPlayingMessageId(null);
+  //   }
+  // }, [isInitialized]);
+  
+  // Play full message audio
+  const playMessageAudio = useCallback(async (audioData: Uint8Array, messageId: string) => {
+    if (!managerRef.current) return;
+    await managerRef.current.playMessageAudio(
+      audioData,
+      messageId,
+      handlePlaybackStateChange
+    );
+  }, [handlePlaybackStateChange]);
+
+  // Play audio buffer directly
+  const playAudioDirect = useCallback(async (audioData: Uint8Array) => {
+    if (!managerRef.current) return;
+    await managerRef.current.playAudioBufferDirect(
+      audioData,
+      handlePlaybackStateChange
+    );
+  }, [handlePlaybackStateChange]);
+
+  // Stop all audio
+  const stopPlayback = useCallback(() => {
+    if (!managerRef.current) return;
+    managerRef.current.stopAudio();
+    setIsPlaying(false);
+    setCurrentlyPlayingMessageId(null);
+  }, []);
+
+  const stopRequest = useCallback((requestId: string) => {
+    if (!managerRef.current) return;
+    managerRef.current.stopRequest(requestId);
+  }, []);
+
+  // Speech recognition
   const startListening = useCallback(async () => {
-    if (!managerRef.current || !isInitialized) {
-      console.error('Audio manager not initialized');
-    }
+    if (!managerRef.current) return;
+    setIsListening(true);
 
     try {
       await managerRef.current?.startListening(
@@ -96,144 +188,76 @@ export function useAudioManager(): UseAudioManagerReturn {
           setIsListening(false);
         }
       );
-      setIsListening(true);
     } catch (error) {
       console.error('Error starting listening:', error);
       setIsListening(false);
     }
-  }, [isInitialized]);
-
-  const stopListening = useCallback(() => {
-    if (managerRef.current) {
-      managerRef.current.stopListening();
-    }
-    setIsListening(false);
-    setInterimTranscript('');
   }, []);
 
-  const synthesizeSpeech = useCallback(async (text: string, messageId: string) => {
-    if (!managerRef.current || !isInitialized) {
-      console.error('Audio manager not initialized');
-      throw Error('Audio manager not initialized');
-    }
+  const stopListening = useCallback(() => {
+    if (!managerRef.current) return;
+    managerRef.current.stopListening();
+    setIsListening(false);
+  }, []);
 
-    try {
-      const audioData = await managerRef.current.synthesizeSpeech(
-        text,
-        messageId,
-        (isPlaying, msgId) => {
-          setIsPlayingAudio(isPlaying);
-          setCurrentlyPlayingId(msgId);
-        }
-      );
-      return audioData;
-    } catch (error) {
-      console.error('Error synthesizing speech:', error);
-      setIsPlayingAudio(false);
-      setCurrentlyPlayingId(null);
-    }
-  }, [isInitialized]);
-  
-  const synthesizeSpeechStream: UseAudioManagerReturn['synthesizeSpeechStream'] = useCallback((
-    text,
-    messageId,
-    onCompleteAudio?
+  // Transcription correction
+  const correctTranscription = useCallback(async (
+    rawTranscript: string,
+    messages: string[] = []
   ) => {
-    if (!managerRef.current || !isInitialized) {
-      console.error('Audio manager not initialized');
-      return;
-    }
+    if (!managerRef.current) return { corrected: rawTranscript, confidence: 0.5, changes: [] };
+    return await managerRef.current.correctTranscription(rawTranscript, messages);
+  }, []);
 
-    // Generate sequence from timestamp for ordering
-    const sequenceNumber = Date.now();
+  // Fallback speech
+  const playFallbackSpeech = useCallback((text: string) => {
+    if (!managerRef.current) return;
+    managerRef.current.playFallbackSpeech(text);
+  }, []);
 
-    try {
-      managerRef.current.synthesizeSpeechStream(
-        text,
-        messageId,
-        sequenceNumber,
-        (isPlaying, msgId) => {
-          setIsPlayingAudio(isPlaying);
-          setCurrentlyPlayingId(msgId);
-        },
-        onCompleteAudio
-      );
-    } catch (error) {
-      console.error('Error synthesizing speech:', error);
-      setIsPlayingAudio(false);
-      setCurrentlyPlayingId(null);
-    }
-  }, [isInitialized]);
+  // Queue stats
+  const getQueueStats = useCallback((requestId: string) => {
+    if (!managerRef.current) return null;
+    return managerRef.current.getQueueStats(requestId);
+  }, []);
 
-  const playMessageAudio = useCallback((audioData: any, messageId: any) => {
-    if (!managerRef.current || !isInitialized) {
-      console.error('Audio manager not initialized');
-      return;
-    }
+  // Set concurrent requests policy
+  const setAllowConcurrentRequests = useCallback((allow: boolean) => {
+    if (!managerRef.current) return;
+    managerRef.current.setAllowConcurrentRequests(allow);
+  }, []);
 
-    managerRef.current.playMessageAudio(
-      audioData, 
-      messageId, 
-      (isPlaying, msgId) => {
-        setIsPlayingAudio(isPlaying);
-        setCurrentlyPlayingId(msgId);
-      }
-    );
-  }, [isInitialized])
-
-  const stopPlayback = useCallback(() => {
-    if (managerRef.current) {
-      managerRef.current.stopAudio();
-      setIsPlayingAudio(false);
-      setCurrentlyPlayingId(null);
-    }
-  }, [isInitialized]);
-
-  const playFallbackSpeech = useCallback((text: string, messageId: string) => {
-    if (!managerRef.current || !isInitialized) {
-      console.error('Audio manager not initialized');
-    }
-    
-    if (managerRef.current) {
-      managerRef.current.playFallbackSpeech(text);
-      setIsPlayingAudio(true);
-      setCurrentlyPlayingId(messageId);
-    }
-  }, [isInitialized]);
-
-  const playAudioBufferDirect = useCallback((buffer: Uint8Array) => {
-    if (!isInitialized) {
-      console.error('Speech Recognition Manager not initialized');
-    }
-    if (!managerRef.current) {
-      console.error('ManagerRef current: ', managerRef.current);
-    }
-
-    if (managerRef.current) {
-      managerRef.current.playAudioBufferDirect(buffer, (isPlaying, msgId) => {
-        setIsPlayingAudio(isPlaying);
-        setCurrentlyPlayingId(msgId);
-      })
-      setIsPlayingAudio(true);
-    } 
-  }, [isInitialized]);
+   // Set interim result delay
+   const setInterimResultDelay = useCallback((delayMs: number) => {
+    if (!managerRef.current) return;
+    managerRef.current.setInterimResultDelay(delayMs);
+  }, []);
 
   return {
+    isInitialized,
+    isListening,
+    isPlaying,
+    currentlyPlayingMessageId,
+
+    enqueueAudioChunk,
+    markRequestComplete,
+    playMessageAudio,
+    playAudioDirect,
+    stopPlayback,
+    stopRequest,
+
     startListening,
     stopListening,
-    isListening,
+    correctTranscription,
     transcript,
     setTranscript,
     interimTranscript,
     setInterimTranscript,
-    synthesizeSpeech,
-    synthesizeSpeechStream,
-    playMessageAudio,
-    stopPlayback,
+
     playFallbackSpeech,
-    isPlayingAudio,
-    currentlyPlayingId,
-    isInitialized,
-    playAudioBufferDirect
+    getQueueStats,
+    setAllowConcurrentRequests,
+    setInterimResultDelay,
+    // synthesizeSpeech,
   };
 }
