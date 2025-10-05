@@ -1,4 +1,4 @@
-import { auth } from "@/app/(auth)/auth"
+import { auth } from "@/auth"
 import { getChatsByUserId } from "@/db/queries";
 
 export async function GET() {

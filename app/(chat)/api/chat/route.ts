@@ -15,7 +15,7 @@ import {
   saveChat,
 } from "@/db/queries";
 import { generateUUID } from "@/lib/utils";
-import { auth } from "@/app/(auth)/auth"
+import { auth } from "@/auth"
 import gemini from "@/lib/gemini";
 
 export async function POST(request: Request) {
