@@ -115,7 +115,7 @@ export class SpeechRecognitionManager extends AudioManager {
       this.recognition.start();
       this.isListening = true;
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error starting listening:', error);
       if (this.onError) {
         this.onError('Failed to access microphone');
@@ -283,7 +283,7 @@ export class SpeechRecognitionManager extends AudioManager {
   //     }
 
   //     return completeAudioData;
-  //   } catch (error) {
+  //   } catch (error: any) {
   //     console.error('Error in synthesizeSpeech:', error);
   //     this.isPlaying = false;
   //     this.currentlyPlayingMessageId = null;
@@ -308,7 +308,7 @@ export class SpeechRecognitionManager extends AudioManager {
       
       const result = await response.json();
       return result;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Speech correction failed:', error);
       return { 
         corrected: rawTranscript, 

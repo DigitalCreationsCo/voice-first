@@ -253,7 +253,7 @@ export function Chat({
       }
 
       startListening();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to start listening:', error);
       toast.error('An error occurred while initializing');
     }

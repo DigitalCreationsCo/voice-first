@@ -19,8 +19,8 @@ const FileSchema = z.object({
     ),
 });
 
-export async function POST(request: Request, response: Response) {
-  const session = auth()
+export async function POST(request: Request) {
+  const session = await auth()
 
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -42,7 +42,7 @@ export async function POST(request: Request, response: Response) {
 
     if (!validatedFile.success) {
       const errorMessage = validatedFile.error.errors
-        .map((error) => error.message)
+        .map((error: any) => error.message)
         .join(", ");
 
       return NextResponse.json({ error: errorMessage }, { status: 400 });
@@ -57,10 +57,10 @@ export async function POST(request: Request, response: Response) {
       });
 
       return NextResponse.json(data);
-    } catch (error) {
+    } catch (error: any) {
       return NextResponse.json({ error: "Upload failed" }, { status: 500 });
     }
-  } catch (error) {
+  } catch (error: any) {
     return NextResponse.json(
       { error: "Failed to process request" },
       { status: 500 },

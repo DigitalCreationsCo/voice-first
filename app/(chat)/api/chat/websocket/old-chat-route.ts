@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
             message: 'Unknown message type' 
           }));
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error parsing message:', error);
       socket.send(JSON.stringify({ 
         type: 'error', 
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
     console.log('WebSocket connection closed');
   };
 
-  socket.onerror = (error) => {
+  socket.onerror = (error: any) => {
     console.error('WebSocket error:', error);
   };
 

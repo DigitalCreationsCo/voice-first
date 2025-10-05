@@ -1,7 +1,7 @@
 import { auth } from "@/app/(auth)/auth"
 import { getChatsByUserId } from "@/db/queries";
 
-export async function GET(request: Request, response: Response) {
+export async function GET() {
   const session = await auth()
   console.log('session ', session);
   

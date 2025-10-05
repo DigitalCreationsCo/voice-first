@@ -294,7 +294,7 @@ app.prepare().then(() => {
               requestId: message.requestId
             }));
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error processing message:', error);
         ws.send(JSON.stringify({
           type: 'error',

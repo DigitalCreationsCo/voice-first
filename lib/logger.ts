@@ -12,7 +12,7 @@
           asObject: true
         },
         formatters: {
-            level: (label) => ({ level: label }),
+            level: (label: any) => ({ level: label }),
         },
         // Add transports for production, e.g., to a log management service
         // transports: {
@@ -26,7 +26,7 @@
     if (config.serverUrl) {
         pinoConfig.browser.transmit = {
           level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-          send: (level, logEvent) => {
+          send: (level: any, logEvent: any) => {
             const msg = logEvent.messages[0]
       
             const headers = {
@@ -71,11 +71,11 @@
       
       if (typeof window === 'undefined') {
         // Server-side: use pino logger
-        console.log = (...args: any[]) => logger.info(...args);
-        console.info = (...args: any[]) => logger.info(...args);
-        console.warn = (...args: any[]) => logger.warn(...args);
-        console.error = (...args: any[]) => logger.error(...args);
-        console.debug = (...args: any[]) => logger.debug(...args);
+        console.log = (...args: any[]) => logger.info(args);
+        console.info = (...args: any[]) => logger.info(args);
+        console.warn = (...args: any[]) => logger.warn(args);
+        console.error = (...args: any[]) => logger.error(args);
+        console.debug = (...args: any[]) => logger.debug(args);
       } else {
         // Client-side: use browser-compatible logger
         const browserLogger = createBrowserLogger();

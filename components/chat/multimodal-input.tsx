@@ -106,7 +106,7 @@ export function MultimodalInput({
         const { error } = await response.json();
         toast.error(error);
       }
-    } catch (error) {
+    } catch (error: any) {
       toast.error("Failed to upload file, please try again!");
     }
   };
@@ -129,7 +129,7 @@ export function MultimodalInput({
             ...successfullyUploadedAttachments,
           ]);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error uploading files!", error);
       } finally {
         setUploadQueue([]);

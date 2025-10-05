@@ -454,7 +454,7 @@ class AudioManager {
         }
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error in enqueueOrderedAudioChunk:', error);
       onPlaybackStateChange?.(false, null);
     }

@@ -125,16 +125,16 @@ function addToolMessageToChat({
   toolMessage,
   messages,
 }: {
-  toolMessage: CoreToolMessage;
-  messages: Array<Message>;
-}): Array<Message> {
+  toolMessage: any;
+  messages: Array<any>;
+}): Array<any> {
   return messages.map((message) => {
     if (message.toolInvocations) {
       return {
         ...message,
-        toolInvocations: message.toolInvocations.map((toolInvocation) => {
+        toolInvocations: message.toolInvocations.map((toolInvocation: any) => {
           const toolResult = toolMessage.content.find(
-            (tool) => tool.toolCallId === toolInvocation.toolCallId,
+            (tool: any) => tool.toolCallId === toolInvocation.toolCallId,
           );
 
           if (toolResult) {
@@ -155,9 +155,9 @@ function addToolMessageToChat({
 }
 
 export function convertToUIMessages(
-  messages: Array<CoreMessage>,
-): Array<Message> {
-  return messages.reduce((chatMessages: Array<Message>, message) => {
+  messages: Array<any>,
+): Array<any> {
+  return messages.reduce((chatMessages, message) => {
     if (message.role === "tool") {
       return addToolMessageToChat({
         toolMessage: message as CoreToolMessage,
@@ -166,7 +166,7 @@ export function convertToUIMessages(
     }
 
     let textContent = "";
-    let toolInvocations: Array<ToolInvocation> = [];
+    let toolInvocations: Array<any> = [];
 
     if (typeof message.content === "string") {
       textContent = message.content;
@@ -260,7 +260,7 @@ export function getWebSocketUrl(): string {
 export function findLastIncompleteAssistantMessageIndex(messages: UIMessage[]) {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (message.role === 'assistant' && !message.isComplete) {
+    if (message.role === 'assistant') {
       return i;
     }
   }

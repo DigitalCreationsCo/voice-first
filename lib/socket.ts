@@ -46,12 +46,12 @@ class ChatWebSocketClient {
           this.handleDisconnection();
         };
 
-        this.ws.onerror = (error) => {
+        this.ws.onerror = (error: any) => {
           console.error('WebSocket error:', error);
           reject(error);
         };
 
-      } catch (error) {
+      } catch (error: any) {
         reject(error);
       }
     });
@@ -105,7 +105,7 @@ class ChatWebSocketClient {
         default:
           console.warn('Unknown message type:', message.type);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error parsing WebSocket message:', error);
     }
   }

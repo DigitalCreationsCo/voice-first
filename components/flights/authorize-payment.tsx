@@ -42,7 +42,7 @@ export function AuthorizePayment({
 
       const updatedReservation = await response.json();
       mutate(updatedReservation);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof Error) {
         toast.error(error.message);
       } else {

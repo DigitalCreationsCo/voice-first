@@ -2,7 +2,7 @@ import { auth } from "@/app/(auth)/auth"
 
 import { getReservationById, updateReservation } from "@/db/queries";
 
-export async function GET(request: Request, response: Response) {
+export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
 
@@ -10,7 +10,7 @@ export async function GET(request: Request, response: Response) {
     return new Response("Not Found!", { status: 404 });
   }
 
-  const session = auth()
+  const session = await auth()
 
   if (!session || !session.user) {
     return new Response("Unauthorized!", { status: 401 });
@@ -24,14 +24,14 @@ export async function GET(request: Request, response: Response) {
     }
 
     return Response.json(reservation);
-  } catch (error) {
+  } catch (error: any) {
     return new Response("An error occurred while processing your request!", {
       status: 500,
     });
   }
 }
 
-export async function PATCH(request: Request, response: Response) {
+export async function PATCH(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
 
@@ -39,7 +39,7 @@ export async function PATCH(request: Request, response: Response) {
     return new Response("Not Found!", { status: 404 });
   }
 
-  const session = auth()
+  const session = await auth()
 
   if (!session || !session.user) {
     return new Response("Unauthorized!", { status: 401 });
@@ -71,7 +71,7 @@ export async function PATCH(request: Request, response: Response) {
       hasCompletedPayment: true,
     });
     return Response.json(updatedReservation);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error updating reservation:", error);
     return new Response("An error occurred while processing your request!", {
       status: 500,

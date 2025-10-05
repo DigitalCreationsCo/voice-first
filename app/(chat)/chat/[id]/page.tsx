@@ -7,7 +7,7 @@ import { getChatById } from "@/db/queries";
 import { Chat } from "@/db/schema";
 import { convertToUIMessages } from "@/lib/utils";
 
-export default async function Page({ request, response, params }: { params: any request: any; response: any }) {
+export default async function Page({ params }: { params: any; }) {
   const { id } = params;
   const chatFromDb = await getChatById({ id });
 

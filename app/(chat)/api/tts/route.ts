@@ -65,7 +65,7 @@ export async function POST(req: Request) {
           console.log(`TTS completed: ${chunkCount} chunks sent`);
           controller.close();
 
-        } catch (error) {
+        } catch (error: any) {
           console.error('Error in TTS stream:', error);
           controller.error(new Error(`Failed to generate TTS: ${error.message}`));
         }
@@ -84,7 +84,7 @@ export async function POST(req: Request) {
       },
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in TTS API:', error);
     return new Response('Internal Server Error', { status: 500 });
   }

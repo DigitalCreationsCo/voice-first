@@ -58,7 +58,7 @@ export function useAudioManager(options?: AudioManagerOptions) {
           await managerRef.current.initialize();
           setIsInitialized(true);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error initializing audio manager:', error);
       }
     };
@@ -130,7 +130,7 @@ export function useAudioManager(options?: AudioManagerOptions) {
   //       }
   //     );
   //     return audioData;
-  //   } catch (error) {
+  //   } catch (error: any) {
   //     console.error('Error synthesizing speech:', error);
   //     setIsPlaying(false);
   //     setCurrentlyPlayingMessageId(null);
@@ -183,12 +183,12 @@ export function useAudioManager(options?: AudioManagerOptions) {
         (interim) => {
           setInterimTranscript(interim);
         },
-        (error) => {
+        (error: any) => {
           console.error('Speech recognition error:', error);
           setIsListening(false);
         }
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error starting listening:', error);
       setIsListening(false);
     }

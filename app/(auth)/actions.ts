@@ -36,7 +36,7 @@ export const login = async (
     });
 
     return { status: "success" };
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return { status: "invalid_data" };
     }
@@ -65,7 +65,7 @@ export const register = async (
       password: formData.get("password"),
     });
 
-    let [user] = await getUser(validatedData.email);
+    let user = await getUser(validatedData.email);
 
     if (user) {
       return { status: "user_exists" } as RegisterActionState;
@@ -79,7 +79,7 @@ export const register = async (
 
       return { status: "success" };
     }
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return { status: "invalid_data" };
     }

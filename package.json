@@ -9,13 +9,14 @@
   "scripts": {
     "dev": "node server.ts",
     "build": "tsx db/migrate && next build",
-    "start": "next start",
+    "start": "NODE_ENV=production node server.js",
     "lint": "next lint",
     "test": "vitest",
-    "migrate" : "tsx db/migrate"
+    "migrate": "tsx db/migrate"
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.17",
+    "@ai-sdk/react": "^2.0.60",
     "@auth/unstorage-adapter": "^2.0.0",
     "@google/genai": "^1.21.0",
     "@radix-ui/react-alert-dialog": "^1.1.2",
@@ -49,6 +50,8 @@
     "next": "^15.5.4",
     "next-auth": "beta",
     "next-themes": "^0.4.6",
+    "pino": "^10.0.0",
+    "pino-http": "^11.0.0",
     "postgres": "^3.4.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -71,6 +74,7 @@
     "@types/pdf-parse": "^1.1.4",
     "@types/react": "^18.2.23",
     "@types/react-dom": "^18.2.8",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.15",
     "drizzle-kit": "^0.25.0",

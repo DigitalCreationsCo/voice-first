@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WebSocketServer } from 'ws';
 import { IncomingMessage } from 'http';
-import { Socket } from 'net';
-import { parse } from 'url';
 import { genAI } from "@/lib/gemini";
 
 // Store WebSocket server instance
@@ -40,7 +38,7 @@ async function handleWebSocketConnection(ws: any, request: IncomingMessage) {
       } else if (message.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error processing message:', error);
       ws.send(JSON.stringify({
         type: 'error',
@@ -185,8 +183,6 @@ export async function POST(req: NextRequest) {
         headers: { 'Content-Type': 'application/json' }
       });
     }
-
-    const genAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY });
 
     // Convert OpenAI-style messages to Gemini format
     const history = messages.map((msg: any) => ({

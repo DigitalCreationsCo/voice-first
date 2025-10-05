@@ -41,7 +41,7 @@ export default function ClientExample() {
       const response = await fetch("/api/authenticated/greeting")
       const data = await response.json()
       setApiResponse(JSON.stringify(data, null, 2))
-    } catch (error) {
+    } catch (error: any) {
       setApiResponse("Failed to fetch data: " + error)
     }
   }
