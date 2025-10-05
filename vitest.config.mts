@@ -6,6 +6,11 @@ import { resolve } from 'node:path'
 export default defineConfig({
   plugins: [tsconfigPaths(), react()],
   test: {
+    server: {
+      deps: {
+        inline: ['next-auth']
+      }
+    },
     alias: {
       "auth": resolve("./mocks/auth.mock.ts")
     },

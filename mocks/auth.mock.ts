@@ -1,3 +1,7 @@
+import { vi } from "vitest";
+
+export function drizzle() {}
+export function postgres() {}
 export function auth() {
     return [{
         user: {
