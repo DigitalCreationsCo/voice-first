@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "node server.ts",
     "build": "tsx db/migrate && next build",
-    "start": "NODE_ENV=production node server.js",
+    "start": "NODE_ENV=production next start",
     "lint": "next lint",
     "test": "vitest",
     "migrate": "tsx db/migrate",

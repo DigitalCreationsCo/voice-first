@@ -6,6 +6,7 @@ module.exports = {
   //     hmrRefreshes: true,
   //   },
   // },
+  output: "output",
   experimental: {},
   images: {
     remotePatterns: [],

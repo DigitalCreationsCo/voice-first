@@ -240,18 +240,21 @@ export function getWebSocketUrl(): string {
     return ''; // Server-side
   }
 
+  if (!process.env.BACKEND_HOSTPORT) {
+    throw new Error("Backend host is not defined")
+  }
+
   const isDevelopment = process.env.NODE_ENV === 'development';
-  const hostname = window.location.hostname;
+  const wsPort = process.env.NEXT_PUBLIC_WS_PORT || '3001';
+  let hostPort
   
   if (isDevelopment) {
-    // Use separate port in development to avoid HMR conflicts
-    const wsPort = process.env.NEXT_PUBLIC_WS_PORT || '3001';
-    return `ws://${hostname}:${wsPort}/api/chat/websocket`;
+    hostPort = window.location.hostname + `:${wsPort}`;
+    return `ws://${hostPort}/api/chat/websocket`;
   } else {
-    // Production: use same host with secure WebSocket
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const port = window.location.port ? `:${window.location.port}` : '';
-    return `${protocol}//${hostname}${port}/api/chat/websocket`;
+    hostPort = process.env.BACKEND_HOSTPORT!;
+    return `${protocol}//${hostPort}/api/chat/websocket`;
   }
 }
 
