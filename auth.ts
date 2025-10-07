@@ -27,6 +27,7 @@ export const { handlers: { GET, POST }, auth, signIn, signOut } = NextAuth({
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     }),
   ],
+  trustHost: process.env.TRUST_HOST === "true",
   session: { strategy: "jwt" },
   callbacks: {
     async signIn({ user }) {
