@@ -240,7 +240,7 @@ export function getWebSocketUrl(): string {
     return ''; // Server-side
   }
 
-  if (!process.env.BACKEND_HOSTPORT) {
+  if (!process.env.NEXT_PUBLIC_BACKEND_HOSTPORT) {
     throw new Error("Backend host is not defined")
   }
 
@@ -253,7 +253,7 @@ export function getWebSocketUrl(): string {
     return `ws://${hostPort}/api/chat/websocket`;
   } else {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    hostPort = process.env.BACKEND_HOSTPORT!;
+    hostPort = process.env.NEXT_PUBLIC_BACKEND_HOSTPORT!;
     return `${protocol}//${hostPort}/api/chat/websocket`;
   }
 }
