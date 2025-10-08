@@ -1,7 +1,4 @@
-// server.ts - Custom Next.js server with WebSocket support
 import { createServer } from 'http';
-import { parse } from 'url';
-import next from 'next';
 import { WebSocketServer } from 'ws';
 import { GoogleGenAI, Modality } from "@google/genai";
 import { config } from 'dotenv';
@@ -10,13 +7,8 @@ config({
   path: ".env.local",
 });
 
-const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
-const port = parseInt(process.env.PORT || '3000', 10);
 const wsPort = parseInt(process.env.WS_PORT || '3001', 10);
-
-const app = next({ dev, hostname, port });
-const handle = app.getRequestHandler();
 
 const genAI = new GoogleGenAI({
   apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
@@ -231,104 +223,109 @@ async function handleTTSRequest(ws: any, message: any) {
   }
 }
 
-app.prepare().then(() => {
-  const server = createServer((req, res) => {
-    const parsedUrl = parse(req.url!, true);
-    
-    // serverLogger(req as any, res);
-    
-    handle(req, res, parsedUrl);
-  });
-
-  // Create separate WebSocket server on different port to avoid HMR conflicts
-  const wsServer = createServer();
-  const wss = new WebSocketServer({ 
-    server: wsServer,
-    path: '/api/chat/websocket'
-  });
-
-  wss.on('connection', (ws, request) => {
-    console.log('New WebSocket connection established');
-    // Send connection confirmation
-    ws.send(JSON.stringify({
-      type: 'connection_established',
-      message: 'WebSocket connection established successfully',
-      timestamp: Date.now()
+const wsServer = createServer((req, res) => {
+  // Health check endpoint
+  if (req.method === 'GET' && req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      version: process.version,
+      environment: process.env.NODE_ENV || 'development'
     }));
+    return;
+  }
+  
+  // For all other requests, return 404
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'Not found' }));
+});
 
-    ws.on('message', async (data: Buffer) => {
-      try {
-        const message = JSON.parse(data.toString());
-        console.log('Message:', message);
-        console.log('Received message type:', message.type);
+const wss = new WebSocketServer({ 
+  server: wsServer,
+  path: '/api/chat/websocket'
+});
 
-        switch (message.type) {
-          case 'chat_request':
-            await handleChatRequest(ws, message);
-            break;
 
-          case 'tts_request':
-            await handleTTSRequest(ws, message);
-            break;
+
+wss.on('connection', (ws, request) => {
+  console.log('New WebSocket connection established');
+  // Send connection confirmation
+  ws.send(JSON.stringify({
+    type: 'connection_established',
+    message: 'WebSocket connection established successfully',
+    timestamp: Date.now()
+  }));
+
+  ws.on('message', async (data: Buffer) => {
+    try {
+      const message = JSON.parse(data.toString());
+      console.log('Message:', message);
+      console.log('Received message type:', message.type);
+
+      switch (message.type) {
+        case 'chat_request':
+          await handleChatRequest(ws, message);
+          break;
+
+        case 'tts_request':
+          await handleTTSRequest(ws, message);
+          break;
+        
+        case 'ping':
+          ws.send(JSON.stringify({ 
+            type: 'pong', 
+            timestamp: Date.now(),
+            requestId: message.requestId
+          }));
+          break;
+        
+        case 'cancel_request':
+          // Handle request cancellation
+          ws.send(JSON.stringify({
+            type: 'request_cancelled',
+            requestId: message.requestId
+          }));
+          break;
           
-          case 'ping':
-            ws.send(JSON.stringify({ 
-              type: 'pong', 
-              timestamp: Date.now(),
-              requestId: message.requestId
-            }));
-            break;
-          
-          case 'cancel_request':
-            // Handle request cancellation
-            ws.send(JSON.stringify({
-              type: 'request_cancelled',
-              requestId: message.requestId
-            }));
-            break;
-            
-          default:
-            ws.send(JSON.stringify({
-              type: 'error',
-              error: `Unknown message type: ${message.type}`,
-              requestId: message.requestId
-            }));
-        }
-      } catch (error: any) {
-        console.error('Error processing message:', error);
-        ws.send(JSON.stringify({
-          type: 'error',
-          error: 'Failed to process message: Invalid JSON'
-        }));
+        default:
+          ws.send(JSON.stringify({
+            type: 'error',
+            error: `Unknown message type: ${message.type}`,
+            requestId: message.requestId
+          }));
       }
-    });
-
-    ws.on('close', (code, reason) => {
-      console.log(`WebSocket connection closed: ${code} - ${reason}`);
-    });
-
-    ws.on('error', (error: Error) => {
-      console.error('WebSocket error:', error);
-    });
-
-    // Heartbeat to keep connection alive
-    const heartbeat = setInterval(() => {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'heartbeat',
-          timestamp: Date.now()
-        }));
-      } else {
-        clearInterval(heartbeat);
-      }
-    }, 30000); // Send heartbeat every 30 seconds
+    } catch (error: any) {
+      console.error('Error processing message:', error);
+      ws.send(JSON.stringify({
+        type: 'error',
+        error: 'Failed to process message: Invalid JSON'
+      }));
+    }
   });
 
-  server.listen(port, () => {
-    console.log(`> Ready on http://${hostname}:${port}`);
+  ws.on('close', (code, reason) => {
+    console.log(`WebSocket connection closed: ${code} - ${reason}`);
   });
 
-  wsServer.listen(wsPort, () => {
-    console.log(`> WebSocket server running on ws://${hostname}:${wsPort}/api/chat/websocket`);
+  ws.on('error', (error: Error) => {
+    console.error('WebSocket error:', error);
   });
+
+  // Heartbeat to keep connection alive
+  const heartbeat = setInterval(() => {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'heartbeat',
+        timestamp: Date.now()
+      }));
+    } else {
+      clearInterval(heartbeat);
+    }
+  }, 30000); 
+});
+
+wsServer.listen(wsPort, () => {
+  console.log(`> WebSocket server running on ws://${hostname}:${wsPort}/api/chat/websocket`);
 });
