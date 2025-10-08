@@ -245,16 +245,15 @@ export function getWebSocketUrl(): string {
   }
 
   const isDevelopment = process.env.NODE_ENV === 'development';
-  const wsPort = process.env.NEXT_PUBLIC_WS_PORT || '3001';
-  let hostPort
   
   if (isDevelopment) {
-    hostPort = window.location.hostname + `:${wsPort}`;
-    return `ws://${hostPort}/api/chat/websocket`;
+    const wsPort = process.env.NEXT_PUBLIC_WS_PORT || '3001';
+    return `ws://${window.location.hostname}:${wsPort}/api/chat/websocket`;
   } else {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    hostPort = process.env.NEXT_PUBLIC_BACKEND_HOSTPORT!;
-    return `${protocol}//${hostPort}/api/chat/websocket`;
+    const hostPort = process.env.NEXT_PUBLIC_BACKEND_HOSTPORT!;
+    const protocol = hostPort.includes('https:') ? 'wss:' : 'ws:';
+    const wsUrl = hostPort.replace(/^https?:/, protocol);
+    return `${wsUrl}/api/chat/websocket`;
   }
 }
 
