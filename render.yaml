@@ -1,25 +1,6 @@
 services:
   - type: web
     plan: free
-    name: client
-    runtime: node
-    region: ohio
-    repo: https://github.com/DigitalCreationsCo/voice-first.git
-    buildCommand: npm install; npm run build
-    startCommand: npm run start
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: TRUST_HOST
-        value: true
-      - key: BACKEND_HOSTPORT
-        fromService:
-          name: backend
-          type: pserv
-          property: hostport
-
-  - type: pserv
-    plan: starter
     name: backend
     runtime: node
     region: ohio
