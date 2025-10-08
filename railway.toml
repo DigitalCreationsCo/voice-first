@@ -1,3 +1,7 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "server.Dockerfile"
+
 [deploy]
 runtime = "V2"
 numReplicas = 1
