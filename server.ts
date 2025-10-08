@@ -224,7 +224,6 @@ async function handleTTSRequest(ws: any, message: any) {
 }
 
 const wsServer = createServer((req, res) => {
-  // Health check endpoint
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -236,7 +235,15 @@ const wsServer = createServer((req, res) => {
     }));
     return;
   }
-  
+
+  if (req.url === '/api/chat/websocket') {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'Wrong protocol detected.'
+    }));
+    return;
+  }
+
   // For all other requests, return 404
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found' }));
@@ -246,8 +253,6 @@ const wss = new WebSocketServer({
   server: wsServer,
   path: '/api/chat/websocket'
 });
-
-
 
 wss.on('connection', (ws, request) => {
   console.log('New WebSocket connection established');
@@ -266,11 +271,31 @@ wss.on('connection', (ws, request) => {
 
       switch (message.type) {
         case 'chat_request':
-          await handleChatRequest(ws, message);
+          // Don't await - handle asynchronously to avoid blocking
+          handleChatRequest(ws, message).catch(error => {
+            console.error('Error in chat request handler:', error);
+            if (ws.readyState === ws.OPEN) {
+              ws.send(JSON.stringify({
+                type: 'error',
+                error: 'Internal server error',
+                requestId: message.requestId
+              }));
+            }
+          });
           break;
 
         case 'tts_request':
-          await handleTTSRequest(ws, message);
+          // Don't await - handle asynchronously to avoid blocking
+          handleTTSRequest(ws, message).catch(error => {
+            console.error('Error in TTS request handler:', error);
+            if (ws.readyState === ws.OPEN) {
+              ws.send(JSON.stringify({
+                type: 'tts_error',
+                error: 'Internal server error',
+                requestId: message.requestId
+              }));
+            }
+          });
           break;
         
         case 'ping':
