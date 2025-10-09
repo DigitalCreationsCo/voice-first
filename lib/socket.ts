@@ -233,7 +233,7 @@ class ChatWebSocketClient {
     }
 
     // console.log(`   🗑️ Cleaning up pending request: ${message.parentRequestId}`);
-    // this.pendingRequests.delete(message.parentRequestId);
+    this.pendingRequests.delete(message.parentRequestId);
   }
 
   private handleError(message: any) {
