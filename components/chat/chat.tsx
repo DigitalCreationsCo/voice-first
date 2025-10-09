@@ -225,16 +225,10 @@ export function Chat({
               requestId
             });
   
-            const uint8Array = AudioConverter.base64ToUint8Array(audioChunk);
-            
-            TTSDebugLogger.logStage(chatRequestId, `Converted chunk ${audioChunkIndex} to Uint8Array`, {
-              byteLength: uint8Array.length
-            });
-  
             enqueueAudioChunk(
               requestId, 
               audioChunkIndex,
-              uint8Array,
+              audioChunk,
               assistantMessageId
             );
 
@@ -380,17 +374,11 @@ export function Chat({
                 chunkIndex: audioChunkIndex,
                 requestId
               });
-
-              const uint8Array = AudioConverter.base64ToUint8Array(audioChunk);
-
-              TTSDebugLogger.logStage(chatRequestId, `Converted chunk ${audioChunkIndex} to Uint8Array`, {
-                byteLength: uint8Array.length
-              });
     
               enqueueAudioChunk(
                 chatRequestId,
                 audioChunkIndex,
-                uint8Array, 
+                audioChunk, 
                 assistantMessageId
               );
               

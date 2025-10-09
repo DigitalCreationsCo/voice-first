@@ -145,7 +145,7 @@ export class SpeechRecognitionManager extends AudioManager {
   async processStreamedAudioChunk(
     requestId: string,
     chunkIndex: number,
-    audioData: Uint8Array,
+    audioData: string,
     messageId: string,
     onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void
   ): Promise<void> {

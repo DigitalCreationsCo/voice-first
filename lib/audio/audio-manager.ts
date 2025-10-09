@@ -3,7 +3,7 @@
 // High-performance chunk ordering system
 // ============================================
 
-import { AudioConverter, AudioDebugger, AudioFormat } from "./helpers";
+import { AudioConverter, AudioDebugger, AudioFormat, TTSDebugLogger } from "./helpers";
 
 interface AudioChunkMetadata {
   chunkIndex: number;
@@ -426,8 +426,12 @@ class AudioManager {
         base64Length: base64Audio.length,
         messageId
       });
-
+            
       const uint8Array = AudioConverter.base64ToUint8Array(base64Audio);
+
+      TTSDebugLogger.logStage(requestId, `Converted chunk ${chunkIndex} to Uint8Array`, {
+        byteLength: uint8Array.length
+      });
       
       const float32Data = AudioConverter.int16ToFloat32(uint8Array);
       
@@ -492,7 +496,7 @@ class AudioManager {
    * Uses OrderedAudioQueueManager with auto-generated requestId
    */
   async playAudioBufferDirect(
-    buffer: Uint8Array,
+    buffer: string,
     onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void
   ) {
     if (!buffer || buffer.length === 0) return;
@@ -515,7 +519,7 @@ class AudioManager {
    * Play full message audio
    */
   async playMessageAudio(
-    audioData: Uint8Array,
+    audioData: string,
     messageId: string,
     onPlaybackStateChange: (isPlaying: boolean, messageId: string | null) => void
   ) {

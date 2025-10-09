@@ -157,7 +157,7 @@ class ChatWebSocketClient {
         request.onComplete(message.content);
       }
       // Don't delete here - TTS might still need it
-      this.pendingRequests.delete(message.requestId);
+      // this.pendingRequests.delete(message.requestId);
     }
   }
 
