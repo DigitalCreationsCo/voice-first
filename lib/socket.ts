@@ -342,8 +342,8 @@ class ChatWebSocketClient {
     };
 
     if (callbacks) {
-      console.log('   ✅ Storing callbacks under parentRequestId:', parentRequestId);
-      this.pendingRequests.set(parentRequestId, callbacks);
+      console.log('   ✅ Storing callbacks under requestId:', requestId);
+      this.pendingRequests.set(requestId, callbacks);
     } else {
       console.log('   ℹ️ No callbacks provided - using existing callbacks from parentRequestId:', parentRequestId);
     }
