@@ -4,9 +4,13 @@ export interface ChatMessageCallbacks {
   onComplete?: (fullResponse: string) => void;
   onError?: (error: string) => void;
   onTTSStreamStart?: (message: any) => void;
-  onTTSChunk?: (requestId: string, audioChunk: string, chunkIndex: number) => void;
-  onTTSComplete?: (requestId: string, fullAudio: string, chunkIndex: number) => void;
-}
+  onTTSChunk?: (parentRequestId: string, audioChunk: string, chunkIndex: number) => void;
+  onTTSComplete?: (requestId: string, fullAudio: string, totalChunks: number) => void;
+};
+
+interface MessageRequest extends ChatMessageCallbacks {
+
+};
 
 class ChatWebSocketClient {
   private ws: WebSocket | null = null;
@@ -15,7 +19,7 @@ class ChatWebSocketClient {
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
   private isManuallyDisconnected = false;
-  private pendingRequests = new Map();
+  private pendingRequests = new Map<string, MessageRequest>();
   private requestIdCounter = 0;
   private onConnectionChange: ((connected: boolean) => void) | null = null;
   
@@ -59,11 +63,14 @@ class ChatWebSocketClient {
 
   private handleMessage(event: MessageEvent) {
     try {
+      console.log('🔵 RAW WEBSOCKET MESSAGE:', event);
+
       const message = JSON.parse(event.data);
-      
+      console.log('🔵 PARSED MESSAGE:', message);
+
       switch (message.type) {
         case 'connection_established':
-          console.log('Connection established:', message.message);
+          console.log('🤝 Connection established:', message.message);
           break;
         
         case 'stream_start':
@@ -96,84 +103,173 @@ class ChatWebSocketClient {
           break;
         
         case 'pong':
-          console.log('Received pong:', message.timestamp);
+          console.log('🏓 Received pong:', message.timestamp);
           break;
         
         case 'heartbeat':
           break;
         
         default:
-          console.warn('Unknown message type:', message.type);
+          console.warn('⚠️ Unknown message type:', message.type);
       }
     } catch (error: any) {
-      console.error('Error parsing WebSocket message:', error);
+      console.error('❌ Error parsing WebSocket message:', error);
     }
   }
 
   private handleStreamStart(message: any) {
+    console.log('📨 Chat Stream Start Handler:', {
+      requestId: message.requestId,
+      hasPendingRequest: this.pendingRequests.has(message.requestId)
+    });
+
     const request = this.pendingRequests.get(message.requestId);
     if (request && request.onStreamStart) {
+      console.log('   ✅ Calling onStreamStart callback');
       request.onStreamStart(message);
     }
   }
 
   private handleStreamChunk(message: any) {
+    console.log('📨 Chat Chunk Handler:', {
+      requestId: message.requestId,
+      chunkIndex: message.chunkIndex,
+      contentLength: message.content?.length
+    });
+
     const request = this.pendingRequests.get(message.requestId);
     if (request && request.onChunk) {
+      console.log('   ✅ Calling onChunk callback');
       request.onChunk(message.requestId, message.content, message.chunkIndex);
     }
   }
 
   private handleStreamComplete(message: any) {
+    console.log('📨 Chat Complete Handler:', {
+      requestId: message.requestId,
+      contentLength: message.content?.length
+    });
+
     const request = this.pendingRequests.get(message.requestId);
     if (request) {
       if (request.onComplete) {
+        console.log('   ✅ Calling onComplete callback');
         request.onComplete(message.content);
       }
+      // Don't delete here - TTS might still need it
       this.pendingRequests.delete(message.requestId);
     }
   }
 
   private handleTTSStreamStart(message: any) {
+    console.log('📨 TTS Stream Start Handler:', {
+      parentRequestId: message.parentRequestId,
+      requestId: message.requestId,
+      hasPendingRequest: this.pendingRequests.has(message.parentRequestId),
+      allPendingKeys: Array.from(this.pendingRequests.keys())
+    });
+
     const request = this.pendingRequests.get(message.parentRequestId);
-    if (request && request.onTTSStreamStart) {
+    
+    if (!request) {
+      console.error(`   ❌ No pending request found for parentRequestId: ${message.parentRequestId}`);
+      console.log('   Available requests:', Array.from(this.pendingRequests.keys()));
+      return;
+    }
+
+    if (request.onTTSStreamStart) {
+      console.log('   ✅ Calling onTTSStreamStart callback');
       request.onTTSStreamStart(message);
+    } else {
+      console.warn('   ⚠️ Request found but no onTTSStreamStart callback');
     }
   }
 
   private handleTTSStreamChunk(message: any) {
+    console.log('📨 TTS Chunk Handler:', {
+      parentRequestId: message.parentRequestId,
+      chunkIndex: message.chunkIndex,
+      contentLength: message.content?.length,
+      hasPendingRequest: this.pendingRequests.has(message.parentRequestId)
+    });
+
     const request = this.pendingRequests.get(message.parentRequestId);
-    if (request && request.onTTSChunk) {
-      request.onTTSChunk(message.requestId, message.content, message.chunkIndex); 
+
+    if (!request) {
+      console.error(`   ❌ No pending request found for parentRequestId: ${message.parentRequestId}`);
+      console.log('   Available requests:', Array.from(this.pendingRequests.keys()));
+      return;
+    }
+
+    if (request.onTTSChunk) {
+      console.log(`✅ Calling onTTSChunk callback`);
+      request.onTTSChunk(message.parentRequestId, message.content, message.chunkIndex); 
+    } else {
+      console.warn(`⚠️ Request found but no onTTSChunk callback`);
     }
   }
 
   private handleTTSStreamComplete(message: any) {
+    console.log('📨 TTS Complete Handler:', {
+      parentRequestId: message.parentRequestId,
+      totalChunks: message.totalChunks,
+      contentLength: message.content?.length,
+      hasPendingRequest: this.pendingRequests.has(message.parentRequestId)
+    });
+  
     const request = this.pendingRequests.get(message.parentRequestId);
-    if (request && request.onTTSComplete) {
-      request.onTTSComplete(message.requestId, message.content, message.chunkIndex); 
+    
+    if (!request) {
+      console.error(`❌ No pending request for parentRequestId: ${message.parentRequestId}`);
+      console.log('   Available requests:', Array.from(this.pendingRequests.keys()));
+      return;
     }
+    
+    if (request.onTTSComplete) {
+      console.log('   ✅ Calling onTTSComplete callback');
+      request.onTTSComplete(message.parentRequestId, message.content, message.totalChunks);
+    } else {
+      console.warn('   ⚠️ Request found but no onTTSComplete callback');
+    }
+
+    console.log(`   🗑️ Cleaning up pending request: ${message.parentRequestId}`);
+    this.pendingRequests.delete(message.parentRequestId);
   }
 
   private handleError(message: any) {
-    const request = this.pendingRequests.get(message.requestId);
+    console.error('📨 Error Handler:', {
+      type: message.type,
+      requestId: message.requestId,
+      parentRequestId: message.parentRequestId,
+      error: message.error
+    });
+
+    const requestId = message.parentRequestId || message.requestId;
+    const request = this.pendingRequests.get(requestId);
+
     if (request && request.onError) {
+      console.log('   ✅ Calling onError callback');
       request.onError(message.error);
     } else {
-      console.error('WebSocket error:', message.error);
+      console.error('   ❌ No error handler found, logging error:', message.error);
     }
-    if (message.requestId) {
-      this.pendingRequests.delete(message.requestId);
+
+    if (requestId) {
+      this.pendingRequests.delete(requestId);
     }
   }
 
   private handleDisconnection() {
     if (!this.isManuallyDisconnected && this.reconnectAttempts < this.maxReconnectAttempts) {
+      const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts);
+      console.log(`🔄 Attempting to reconnect in ${delay}ms (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
+
       setTimeout(() => {
-        console.log(`Attempting to reconnect (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
         this.reconnectAttempts++;
         this.connect().catch(console.error);
-      }, this.reconnectDelay * Math.pow(2, this.reconnectAttempts)); 
+      }, delay); 
+    } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('❌ Max reconnection attempts reached');
     }
   }
 
@@ -191,6 +287,20 @@ class ChatWebSocketClient {
 
     const requestId = (++this.requestIdCounter).toString();
     
+    console.log('📤 Sending Chat Message:', {
+      requestId,
+      messageCount: messages.length,
+      hasCallbacks: {
+        onStreamStart: !!callbacks.onStreamStart,
+        onChunk: !!callbacks.onChunk,
+        onComplete: !!callbacks.onComplete,
+        onTTSStreamStart: !!callbacks.onTTSStreamStart,
+        onTTSChunk: !!callbacks.onTTSChunk,
+        onTTSComplete: !!callbacks.onTTSComplete,
+        onError: !!callbacks.onError
+      }
+    });
+
     this.pendingRequests.set(requestId, callbacks);
 
     const message = {
@@ -203,16 +313,25 @@ class ChatWebSocketClient {
     return requestId;
   }
 
-  async sendTTSRequest(
+  sendTTSRequest(
     text: string,
     chunkIndex: number,
     parentRequestId: string,
+    callbacks?: ChatMessageCallbacks,
   ) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket is not connected');
     }
 
     const requestId = (++this.requestIdCounter).toString();
+    
+    console.log('📤 Sending TTS Request:', {
+      requestId,
+      parentRequestId,
+      textLength: text.length,
+      textPreview: text.substring(0, 50),
+      hasCallbacks: !!callbacks
+    });
 
     const message = {
       type: 'tts_request',
@@ -221,6 +340,13 @@ class ChatWebSocketClient {
       parentRequestId,
       requestId
     };
+
+    if (callbacks) {
+      console.log('   ✅ Storing callbacks under parentRequestId:', parentRequestId);
+      this.pendingRequests.set(parentRequestId, callbacks);
+    } else {
+      console.log('   ℹ️ No callbacks provided - using existing callbacks from parentRequestId:', parentRequestId);
+    }
 
     this.ws.send(JSON.stringify(message));
     return requestId;
@@ -239,6 +365,7 @@ class ChatWebSocketClient {
 
   cancelRequest(requestId: string): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      console.log('🚫 Canceling request:', requestId);
       this.ws.send(JSON.stringify({
         type: 'cancel_request',
         requestId
@@ -248,6 +375,7 @@ class ChatWebSocketClient {
   }
 
   disconnect(): void {
+    console.log('🔌 Disconnecting WebSocket');
     this.isManuallyDisconnected = true;
     if (this.ws) {
       this.ws.close();
@@ -258,6 +386,10 @@ class ChatWebSocketClient {
 
   get isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  getPendingRequests(): string[] {
+    return Array.from(this.pendingRequests.keys());
   }
 }
 

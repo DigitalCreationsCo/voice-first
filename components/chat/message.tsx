@@ -48,7 +48,7 @@ export const Message = ({
             : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 self-start'
           }`}
       >
-        <div className={`flex flex-col items-start whitespace-pre-line
+        <div className={`flex flex-col w-full items-start whitespace-pre-line
           ${message.role === 'assistant'
             ? 'self-start'
             : 'self-end'
@@ -62,7 +62,7 @@ export const Message = ({
           >
             {message.role === 'assistant' ? <BotIcon /> : <UserIcon />}
           </span>
-          <Markdown>{message.content}</Markdown>
+        <Markdown>{message.content}</Markdown>
         </div>
 
         {message.role === 'assistant' && message.audioData && (

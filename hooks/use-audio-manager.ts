@@ -1,6 +1,6 @@
 // useAudioManager.ts
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { SpeechRecognitionManager } from '@/lib/speech-recognition-manager';
+import { SpeechRecognitionManager } from '@/lib/audio/speech-recognition-manager';
 import { toast } from 'sonner';
 
 interface UseAudioManagerReturn {

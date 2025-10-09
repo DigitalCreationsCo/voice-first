@@ -1,7 +1,8 @@
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import { GoogleGenAI, Modality } from "@google/genai";
+import { ApiError, GoogleGenAI, Modality } from "@google/genai";
 import { config } from 'dotenv';
+import { AudioDebugger, AudioFormat } from './lib/audio/helpers.js';
 
 config({
   path: ".env.local",
@@ -54,6 +55,11 @@ async function handleChatRequest(ws: any, message: any) {
         config: {
           maxOutputTokens: 100,
         },
+      }).catch((e: ApiError) => {
+        console.error('error name: ', e.name);
+        console.error('error message: ', e.message);
+        console.error('error status: ', e.status);
+        throw e;
       });
 
       let fullResponse = '';
@@ -112,19 +118,31 @@ async function handleChatRequest(ws: any, message: any) {
 }
 
 async function handleTTSRequest(ws: any, message: any) {
-  console.log('handleTTSRequest called')
-  if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-    ws.send(JSON.stringify({
-      type: 'error',
-      error: 'GOOGLE_GENERATIVE_AI_API_KEY not set'
-    }));
-    return;
-  }
-
   try {
-    const { text, parentRequestId } = message;
+    const { text, parentRequestId, requestId } = message;
+
+    console.log(`
+      ╔════════════════════════════════════════╗
+      ║   SERVER: TTS REQUEST RECEIVED         ║
+      ╠════════════════════════════════════════╣
+      ║ Parent (Chat) Request ID: ${parentRequestId}
+      ║ TTS Request ID: ${requestId}
+      ║ Text Length: ${text?.length || 0} chars
+      ║ Text Preview: ${text?.substring(0, 80) || 'N/A'}
+      ╚════════════════════════════════════════╝
+        `);
+    
+    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+      console.error('❌ API key not set');
+      ws.send(JSON.stringify({
+        type: 'error',
+        error: 'GOOGLE_GENERATIVE_AI_API_KEY not set'
+      }));
+      return;
+    }
     
     if (!text) {
+      console.error('❌ No text provided');
       ws.send(JSON.stringify({
         type: 'error',
         error: 'Missing or invalid text'
@@ -132,15 +150,18 @@ async function handleTTSRequest(ws: any, message: any) {
       return;
     }
 
-    // Send stream start event
+    console.log(`📤 Sending TTS stream start to client`);
     ws.send(JSON.stringify({
       type: "tts_stream_start",
-      message: "Starting to generate TTS response",
-      requestId: message.requestId,
-      parentRequestId: parentRequestId
+      message: "Starting TTS generation",
+      parentRequestId: parentRequestId,
+      requestId: requestId
     }));
 
     try {
+      const startTime = Date.now();
+
+      console.log('Sending text to generate audio: ', text);
       const result = await genAI.models.generateContentStream({
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text }] }],
@@ -153,66 +174,154 @@ async function handleTTSRequest(ws: any, message: any) {
             },
           },
         },
+      })
+      .then((res) => {
+        console.log('Response from gemini api: ', res);
+        return res;
+      })
+      .catch((e: ApiError) => {
+        console.error('error name: ', e.name);
+        console.error('error message: ', e.message);
+        console.error('error status: ', e.status);
+        throw e;
       });
       
       let fullAudioBytes = new Uint8Array(0);
-      let audioChunkIndex = 0; // ✅ Track audio chunks separately
+      let audioChunkIndex = 0;
+      let totalBytesReceived = 0;
+      const chunkTimings: number[] = [];
 
       for await (const chunk of result) {
+        const chunkStartTime = Date.now();
         const candidate = chunk.candidates?.[0];
+        console.log(`🎤 Starting to receive audio chunks from Gemini...`);
+        
         if (candidate && candidate.content?.parts) {
           for (const part of candidate.content.parts) {
-            if (part.inlineData && part.inlineData.data && ws.readyState === ws.OPEN) {
+            if (part.inlineData && part.inlineData.data) {
 
-              ws.send(JSON.stringify({
-                type: "tts_stream_chunk",
-                content: part.inlineData.data,
-                chunkIndex: audioChunkIndex, 
-                parentRequestId: parentRequestId,
-                finish_reason: null,
-                requestId: message.requestId
-              }));
+              const isValidBase64 = AudioDebugger.validate(
+                part.inlineData.data,
+                AudioFormat.BASE64_STRING
+              );
+              
+              if (!isValidBase64) {
+                console.error(`❌ Invalid base64 in chunk ${audioChunkIndex}`);
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  error: `Invalid base64 data in chunk ${audioChunkIndex}`,
+                  parentRequestId,
+                  requestId
+                }));
+                return;
+              }
+
+              const chunkInfo = {
+                index: audioChunkIndex,
+                base64Length: part.inlineData.data.length,
+                mimeType: part.inlineData.mimeType,
+                decodedBytes: Buffer.from(part.inlineData.data, 'base64').length
+              };
+  
+              console.log(`📦 Chunk ${audioChunkIndex}:`, chunkInfo);
+              console.log('ws.readyState === ws.OPEN ', ws.readyState === ws.OPEN);
+              
+              if (ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({
+                  type: "tts_stream_chunk",
+                  content: part.inlineData.data,
+                  chunkIndex: audioChunkIndex,
+                  parentRequestId: parentRequestId,
+                  finish_reason: null,
+                  requestId: requestId
+                }));
+                console.log(`   ✓ Sent chunk ${audioChunkIndex} to client`);
+              } else {
+                console.error(`   ❌ WebSocket closed, cannot send chunk ${audioChunkIndex}`);
+                return;
+              }
       
-              audioChunkIndex++; // ✅ Increment for each audio chunk
+              audioChunkIndex++;
 
               const audioChunk = Buffer.from(part.inlineData.data, 'base64');
+              totalBytesReceived += audioChunk.length;
+
               const merged = new Uint8Array(fullAudioBytes.length + audioChunk.length);
               merged.set(fullAudioBytes);
               merged.set(audioChunk, fullAudioBytes.length);
               fullAudioBytes = merged;
+
+              chunkTimings.push(Date.now() - chunkStartTime);
             }
           }
         }
       }
 
-      // Send completion signal
+      const totalTime = Date.now() - startTime;
+      const avgChunkTime = chunkTimings.reduce((a, b) => a + b, 0) / chunkTimings.length;
+  
       if (ws.readyState === ws.OPEN) {
+        const fullBase64 = Buffer.from(fullAudioBytes).toString('base64');
+
+        console.log(`
+          ╔════════════════════════════════════════╗
+          ║   SERVER: TTS GENERATION COMPLETE      ║
+          ╠════════════════════════════════════════╣
+          ║ Total Chunks: ${audioChunkIndex}
+          ║ Total Bytes: ${totalBytesReceived}
+          ║ Full Base64 Length: ${fullBase64.length}
+          ║ Total Time: ${totalTime}ms
+          ║ Avg Chunk Time: ${avgChunkTime.toFixed(2)}ms
+          ║ Parent Request ID: ${parentRequestId}
+          ║ TTS Request ID: ${requestId}
+          ╚════════════════════════════════════════╝
+                `);
+
         ws.send(JSON.stringify({
           type: "tts_stream_complete",
-          content: Buffer.from(fullAudioBytes).toString('base64'), // ✅ Convert to base64
-          chunkIndex: audioChunkIndex,
+          content: fullBase64,
+          totalChunks: audioChunkIndex,
           parentRequestId: parentRequestId,
           finish_reason: "stop",
-          requestId: message.requestId
+          requestId: requestId
         }));
+
+        console.log(`✓ Sent completion message to client`);
       }
+    } catch (error: any) {
+      console.error(`
+        ╔════════════════════════════════════════╗
+        ║   SERVER: TTS GENERATION ERROR         ║
+        ╠════════════════════════════════════════╣
+        ║ Error: ${error.message}
+        ║ Parent Request: ${parentRequestId}
+        ║ TTS Request: ${requestId}
+        ║ Stack: ${error.stack?.split('\n')[0]}
+        ╚════════════════════════════════════════╝
+            `);
 
-      console.log(`TTS completed with ${audioChunkIndex} audio chunks`);
-
-    } catch (streamError: any) {
-      console.error('TTS stream generation error:', streamError);
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({
           type: "tts_error",
-          error: streamError?.message || "Error generating tts response",
+          error: error?.message || "Error generating tts response",
           parentRequestId: parentRequestId,
-          requestId: message.requestId
+          requestId: requestId
         }));
       }
     }
 
   } catch (error: any) {
-    console.error('TTS request error:', error);
+    console.error(`
+      ╔════════════════════════════════════════╗
+      ║   SERVER: TTS REQUEST ERROR            ║
+      ╠════════════════════════════════════════╣
+      ║ Error: ${error.message}
+      ║ Parent Request: ${message.parentRequestId}
+      ║ TTS Request: ${message.requestId}
+      ║ Stack: ${error.stack?.split('\n')[0]}
+      ╚════════════════════════════════════════╝
+          `);
+    
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({
         type: 'tts_error',

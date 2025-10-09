@@ -3,6 +3,8 @@
 // High-performance chunk ordering system
 // ============================================
 
+import { AudioConverter, AudioDebugger, AudioFormat } from "./helpers";
+
 interface AudioChunkMetadata {
   chunkIndex: number;
   audioBuffer: AudioBuffer;
@@ -405,30 +407,45 @@ class AudioManager {
   async enqueueOrderedAudioChunk(
     requestId: string,
     chunkIndex: number,
-    audioData: Uint8Array,
+    base64Audio: string,
     messageId: string,
     onPlaybackStateChange?: (isPlaying: boolean, messageId: string | null) => void
   ): Promise<void> {
     if (!this.audioContext) await this.initializeAudioContext();
     if (this.audioContext!.state === 'suspended') await this.audioContext!.resume();
 
+    console.group(`🎵 Enqueue Audio Chunk ${chunkIndex}`);
     try {
-      const float32Data = convertInt16ToFloat32(audioData);
+      if (!AudioDebugger.validate(base64Audio, AudioFormat.BASE64_STRING)) {
+        throw new Error('Invalid base64 audio data');
+      }
+      
+      console.log('Input:', {
+        requestId,
+        chunkIndex,
+        base64Length: base64Audio.length,
+        messageId
+      });
+
+      const uint8Array = AudioConverter.base64ToUint8Array(base64Audio);
+      
+      const float32Data = AudioConverter.int16ToFloat32(uint8Array);
       
       if (float32Data.length === 0) {
-        console.warn('Empty audio data received');
+        console.warn('Empty audio data after conversion');
+        console.groupEnd();
         return;
       }
-
+  
       const SAMPLE_RATE = 24000;
       const CHANNELS = 1;
       
-      const audioBuffer = this.audioContext!.createBuffer(
-        CHANNELS,
-        float32Data.length,
-        SAMPLE_RATE
+      const audioBuffer = AudioConverter.createAudioBuffer(
+        this.audioContext!,
+        float32Data,
+        SAMPLE_RATE,
+        CHANNELS
       );
-      audioBuffer.getChannelData(0).set(float32Data);
 
       // Store callback
       if (onPlaybackStateChange) {
@@ -443,6 +460,12 @@ class AudioManager {
         messageId
       );
 
+      console.log('Enqueued:', {
+        shouldPlayImmediately,
+        isPlaying: this.isPlaying,
+        currentRequest: this.currentPlayingRequestId
+      });
+
       // Start playback if this is the first chunk
       if (shouldPlayImmediately && !this.isPlaying) {
         this.currentPlayingRequestId = requestId;
@@ -454,9 +477,13 @@ class AudioManager {
         }
       }
 
+      console.groupEnd();
     } catch (error: any) {
-      console.error('Error in enqueueOrderedAudioChunk:', error);
+      console.error('Enqueue error:', error);
+      console.groupEnd();
+      AudioDebugger.printSummary();
       onPlaybackStateChange?.(false, null);
+      throw error;
     }
   }
 
