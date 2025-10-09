@@ -53,7 +53,8 @@ async function handleChatRequest(ws: any, message: any) {
         model: "gemini-2.0-flash",
         contents: history,
         config: {
-          maxOutputTokens: 100,
+          maxOutputTokens: 200,
+          candidateCount: 1
         },
       }).catch((e: ApiError) => {
         console.error('error name: ', e.name);
@@ -68,6 +69,7 @@ async function handleChatRequest(ws: any, message: any) {
       // Stream response chunks
       for await (const chunk of result) {
         const text = chunk.text;
+        
         if (text && ws.readyState === ws.OPEN) {
           fullResponse += text;
           
@@ -160,13 +162,22 @@ async function handleTTSRequest(ws: any, message: any) {
 
     try {
       const startTime = Date.now();
+      
+      const cleanedText = text.replace(/[\n\r*]+/g, '').replace(/[^\x20-\x7E]+/g, '');
+      console.log('Original text length:', cleanedText.length);
+      
+      const isFullLengthText = process.env.FULL_LENGTH_AUDIO_PLAYBACK == 'true' ? true : false;
+      const limitedText = isFullLengthText ? cleanedText : cleanedText.split(/[.!?]+/)[0].trim() + '.';
+      console.log('Limited text length:', limitedText.length);
+      
+      console.log('Sending text to generate audio: ', limitedText);
 
-      console.log('Sending text to generate audio: ', text);
       const result = await genAI.models.generateContentStream({
         model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text }] }],
+        contents: [{ parts: [{ text: limitedText }] }],
         config: {
           maxOutputTokens: 200,
+          candidateCount: 1,
           responseModalities: [Modality.AUDIO],
           speechConfig: {
             voiceConfig: { 
@@ -174,10 +185,6 @@ async function handleTTSRequest(ws: any, message: any) {
             },
           },
         },
-      })
-      .then((res) => {
-        console.log('Response from gemini api: ', res);
-        return res;
       })
       .catch((e: ApiError) => {
         console.error('error name: ', e.name);
@@ -224,7 +231,7 @@ async function handleTTSRequest(ws: any, message: any) {
               };
   
               console.log(`📦 Chunk ${audioChunkIndex}:`, chunkInfo);
-              console.log('ws.readyState === ws.OPEN ', ws.readyState === ws.OPEN);
+              console.log('Websocket ready-state === OPEN: ', ws.readyState === ws.OPEN);
               
               if (ws.readyState === ws.OPEN) {
                 ws.send(JSON.stringify({

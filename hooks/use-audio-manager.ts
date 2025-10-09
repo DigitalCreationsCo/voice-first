@@ -138,7 +138,7 @@ export function useAudioManager(options?: AudioManagerOptions) {
   // }, [isInitialized]);
   
   // Play full message audio
-  const playMessageAudio = useCallback(async (audioData: Uint8Array, messageId: string) => {
+  const playMessageAudio = useCallback(async (audioData: string, messageId: string) => {
     if (!managerRef.current) return;
     await managerRef.current.playMessageAudio(
       audioData,
@@ -148,7 +148,7 @@ export function useAudioManager(options?: AudioManagerOptions) {
   }, [handlePlaybackStateChange]);
 
   // Play audio buffer directly
-  const playAudioDirect = useCallback(async (audioData: Uint8Array) => {
+  const playAudioDirect = useCallback(async (audioData: string) => {
     if (!managerRef.current) return;
     await managerRef.current.playAudioBufferDirect(
       audioData,
