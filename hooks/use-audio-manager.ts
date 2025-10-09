@@ -95,7 +95,7 @@ export function useAudioManager(options?: AudioManagerOptions) {
   const enqueueAudioChunk = useCallback(async (
     requestId: string,
     chunkIndex: number,
-    audioData: Uint8Array,
+    audioData: string,
     messageId: string
   ) => {
     if (!managerRef.current) return;
