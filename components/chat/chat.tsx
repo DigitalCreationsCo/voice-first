@@ -472,7 +472,7 @@ export function Chat({
                 currentlyPlayingMessageId === message.id
                   ? stopPlayback()
                   : playMessageAudio(message.audioData!, message.id)}
-              isCurrentlyPlaying={currentlyPlayingMessageId === message.id}
+              isCurrentlyPlaying={currentlyPlayingMessageId === message.id && isPlaying}
               // toolInvocations={message.toolInvocations}
               // attachments={message.attachments}
             />

@@ -71,7 +71,7 @@ export const Message = ({
               disabled={isPlayAudioDisabled}
               className="text-xs"
             >
-              {isCurrentlyPlaying ? <Volume2Icon size={12} /> : <PlayIcon size={12} />}
+              {isCurrentlyPlaying ? <Volume2Icon size={14} /> : <PlayIcon size={14} />}
             </Button>
           </div>
         )}
