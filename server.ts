@@ -167,7 +167,34 @@ async function handleTTSRequest(ws: any, message: any) {
       console.log('Original text length:', cleanedText.length);
       
       const isFullLengthText = process.env.FULL_LENGTH_AUDIO_PLAYBACK == 'true' ? true : false;
-      const limitedText = isFullLengthText ? cleanedText : cleanedText.split(/[.!?]+/)[0].trim() + '.';
+      let limitedText: string;
+      if (isFullLengthText) {
+        limitedText = cleanedText;
+      } else {
+        const MAX_TTS_LENGTH = 200;
+        function findFirstSentenceEnd(str: string): number | null {
+          const match = str.match(/[.!?]/);
+          return match ? (match.index! + 1) : null;
+        }
+
+        if (cleanedText.length <= 30) {
+          limitedText = cleanedText;
+        } else {
+          const after30 = cleanedText.slice(30);
+          const sentenceEnd = findFirstSentenceEnd(after30);
+
+          if (sentenceEnd !== null) {
+            limitedText = cleanedText.slice(0, 30 + sentenceEnd);
+          } else {
+            const firstSentenceEnd = findFirstSentenceEnd(cleanedText);
+            if (firstSentenceEnd !== null && firstSentenceEnd <= MAX_TTS_LENGTH) {
+              limitedText = cleanedText.slice(0, firstSentenceEnd);
+            } else {
+              limitedText = cleanedText.slice(0, MAX_TTS_LENGTH);
+            }
+          }
+        }
+      }
       console.log('Limited text length:', limitedText.length);
       
       console.log('Sending text to generate audio: ', limitedText);
@@ -176,12 +203,12 @@ async function handleTTSRequest(ws: any, message: any) {
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text: limitedText }] }],
         config: {
-          maxOutputTokens: 200,
+          maxOutputTokens: 300,
           candidateCount: 1,
           responseModalities: [Modality.AUDIO],
           speechConfig: {
             voiceConfig: { 
-              prebuiltVoiceConfig: { voiceName: 'Algenib' } 
+              prebuiltVoiceConfig: { voiceName: 'Charon' } 
             },
           },
         },
