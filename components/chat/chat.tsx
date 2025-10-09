@@ -7,22 +7,14 @@ import React, {
   useEffect,
   useState,
   useCallback,
-  Dispatch,
-  SetStateAction,
 } from "react";
 import { toast } from "sonner";
-import { ArrowUpIcon, PaperclipIcon, StopIcon } from "../custom/icons";
-import { PreviewAttachment } from "./preview-attachment";
-import useWindowSize from "../../hooks/use-window-size";
-import { Button } from "../ui/button";
-import { Textarea } from "../ui/textarea";
-import { buildUIMessage, decode, generateMessageId, getWebSocketUrl, UIMessage } from "@/lib/utils";
+import { buildUIMessage, generateMessageId, getWebSocketUrl, UIMessage } from "@/lib/utils";
 import { useAudioManager } from "@/hooks/use-audio-manager";
-import { PlayIcon, Square, Volume2 } from "lucide-react";
 import { ChatWebSocketClient } from "@/lib/socket";
-import { convertInt16ToFloat32 } from "@/lib/speech-recognition-manager";
 import { Message } from "./message";
 import { MultimodalInput } from "./multimodal-input";
+import { AudioConverter, AudioDebugger, AudioFormat, TTSDebugLogger } from "@/lib/audio/helpers";
 
 export function Chat({
   id,
@@ -125,7 +117,7 @@ export function Chat({
     const assistantMessageId = generateMessageId();
 
     const userMessage = buildUIMessage({ id: userMessageId, role: "user", content: text, isAudio });
-    const updatedMessages = [...messages, userMessage]
+    const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
 
     setInput('');
@@ -135,13 +127,20 @@ export function Chat({
     try {
       const chatRequestId = clientRef.current.sendChatMessage(updatedMessages, {
         onStreamStart: (message) => {
-          console.log('Chat stream started');
+          TTSDebugLogger.startSession(chatRequestId, assistantMessageId);
+          TTSDebugLogger.logStage(chatRequestId, 'Chat stream started', { requestId: message.requestId });
         },
 
         onChunk: async (requestId, textChunk, chunkIndex) => {
-          console.info('Chat chunk: ', textChunk);
-          setIsLoading(true);
+          TTSDebugLogger.updateSession(chatRequestId, { 
+            textChunksReceived: chunkIndex + 1 
+          });
+          TTSDebugLogger.logStage(chatRequestId, `Text chunk ${chunkIndex} received`, {
+            length: textChunk.length,
+            preview: textChunk.substring(0, 50)
+          });
 
+          setIsLoading(true);
           setMessages(prev => {
             const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && msg.id === assistantMessageId)
             const assistantMessage = prev[assistantMessageIndex];
@@ -167,15 +166,22 @@ export function Chat({
         },
 
         onComplete: (fullResponse) => {
-          console.log('onComplete full response: ', fullResponse);
+          TTSDebugLogger.logStage(chatRequestId, 'Text generation complete', {
+            fullResponseLength: fullResponse.length,
+            preview: fullResponse.substring(0, 100)
+          });
+
           setTranscript('');
           setIsLoading(false);
 
-          clientRef.current?.sendTTSRequest(
+          TTSDebugLogger.logStage(chatRequestId, 'Sending TTS request');
+          const ttsRequestId = clientRef.current?.sendTTSRequest(
             fullResponse, 
             0, 
             chatRequestId
-          )
+          );
+
+          TTSDebugLogger.updateSession(chatRequestId, { ttsRequestId });
 
           setMessages(prev => {
             const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && msg.id === assistantMessageId)
@@ -194,52 +200,118 @@ export function Chat({
         },
 
         onTTSStreamStart(message) {
-          console.log('TTS stream started ', message);
+          TTSDebugLogger.logStage(chatRequestId, 'TTS stream started', message);
         },
+
         onTTSChunk(requestId, audioChunk, audioChunkIndex) {
-          console.log('TTS Chunk received:', {
+          TTSDebugLogger.updateSession(chatRequestId, { 
+            audioChunksReceived: audioChunkIndex + 1 
+          });
+
+          console.group(`📥 TTS Chunk ${audioChunkIndex}`);
+          TTSDebugLogger.logStage(chatRequestId, `Audio chunk ${audioChunkIndex} received`, {
             requestId,
-            audioChunkIndex,
-            audioDataLength: audioChunk?.length
+            base64Length: audioChunk?.length,
+            chunkIndex: audioChunkIndex
           });
           
-          const decoded = decode(audioChunk);
-          console.log('Decoded audio length:', decoded.length);
-          
-          enqueueAudioChunk(
-            requestId, 
-            audioChunkIndex,
-            decode(audioChunk),
-            assistantMessageId
-          );
+          try {
+            if (!AudioDebugger.validate(audioChunk, AudioFormat.BASE64_STRING)) {
+              throw new Error('Invalid base64 audio data');
+            }
+            
+            AudioDebugger.log('Raw audio chunk', audioChunk, AudioFormat.BASE64_STRING, {
+              chunkIndex: audioChunkIndex,
+              requestId
+            });
+  
+            const uint8Array = AudioConverter.base64ToUint8Array(audioChunk);
+            
+            TTSDebugLogger.logStage(chatRequestId, `Converted chunk ${audioChunkIndex} to Uint8Array`, {
+              byteLength: uint8Array.length
+            });
+  
+            enqueueAudioChunk(
+              requestId, 
+              audioChunkIndex,
+              uint8Array,
+              assistantMessageId
+            );
+
+            TTSDebugLogger.logStage(chatRequestId, `Enqueued chunk ${audioChunkIndex} for playback`);
+            console.groupEnd();
+          } catch (error: any) {
+            TTSDebugLogger.logError(chatRequestId, `Chunk ${audioChunkIndex} processing failed: ${error.message}`, {
+              audioChunkIndex,
+              error: error.stack
+            });
+            console.groupEnd();
+            AudioDebugger.printSummary();
+          }
         },
 
-        onTTSComplete(requestId, fullAudio, chunkIndex) {
-          console.log('TTS complete for request: ', requestId);
-          markRequestComplete(chatRequestId);
-
-          setMessages(prev => {
-            const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && msg.id === assistantMessageId)
-            const assistantMessage = prev[assistantMessageIndex];
-            
-            if (assistantMessage) {
-              return [
-                ...prev.slice(0, assistantMessageIndex), 
-                { ...assistantMessage, audioData: decode(fullAudio) },
-                ...prev.slice(assistantMessageIndex + 1), 
-              ];
-            }
-
-            return [...prev];
+        onTTSComplete(requestId, fullAudio, totalChunks) {
+          TTSDebugLogger.logStage(chatRequestId, 'TTS generation complete', {
+            requestId,
+            totalChunks,
+            fullAudioLength: fullAudio?.length
           });
+  
+          console.group(`✅ TTS Complete`);
+
+          try {
+            markRequestComplete(chatRequestId);
+            TTSDebugLogger.logStage(chatRequestId, 'Marked request complete in audio queue');
+
+            const uint8Array = AudioConverter.base64ToUint8Array(fullAudio);
+
+            AudioDebugger.log('Full audio', uint8Array, AudioFormat.UINT8_ARRAY, {
+              totalChunks,
+              requestId: chatRequestId
+            });
+
+            setMessages(prev => {
+              const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && msg.id === assistantMessageId)
+              const assistantMessage = prev[assistantMessageIndex];
+              
+              if (assistantMessage) {
+                TTSDebugLogger.logStage(chatRequestId, 'Stored full audio in message');
+                return [
+                  ...prev.slice(0, assistantMessageIndex), 
+                  { ...assistantMessage, audioData: uint8Array },
+                  ...prev.slice(assistantMessageIndex + 1), 
+                ];
+              }
+
+              TTSDebugLogger.logError(chatRequestId, 'Assistant message not found when storing audio');
+              return [...prev];
+            });
+
+            TTSDebugLogger.printSummary(chatRequestId);
+            AudioDebugger.printSummary();
+            AudioDebugger.clearLogs();
+            TTSDebugLogger.clearSession(chatRequestId);
+            
+            console.groupEnd();
+          } catch (error: any) {
+            TTSDebugLogger.logError(chatRequestId, `TTS complete processing failed: ${error.message}`, {
+              error: error.stack
+            });
+            console.groupEnd();
+          }
         },
         onError: (errorMsg) => {
+          TTSDebugLogger.logError(chatRequestId, errorMsg);
+          TTSDebugLogger.printSummary(chatRequestId);
+          AudioDebugger.printSummary();
+
           setError(errorMsg);
           setIsLoading(false);
           setTranscript('');
         }
       });
     } catch (err: any) {
+      console.error('Submit message error:', err);
       setError(err.message || 'Failed to send message');
       setIsLoading(false);
     }
@@ -263,6 +335,145 @@ export function Chat({
     stopListening();
   }, [stopListening]);
 
+  const launchLanguageConversation = useCallback((language: string) => {
+    try {
+      const assistantMessageId = generateMessageId();
+      const content = "Hi! What would you like to discuss in " + language + "?";
+
+      const firstAssistantMessage = buildUIMessage({
+        id: assistantMessageId,
+        role: 'assistant',
+        content: content
+      })
+
+      setMessages(prev => [...prev, firstAssistantMessage]);
+      // setIsLoading(true);
+      setAllowConcurrentRequests(true);
+
+      const chatRequestId = '1'
+      clientRef.current?.sendTTSRequest(
+        content,
+        0, 
+        chatRequestId,
+        {
+          onTTSStreamStart(message) {
+            TTSDebugLogger.startSession(chatRequestId, assistantMessageId);
+            TTSDebugLogger.logStage(chatRequestId, 'TTS stream started', message);
+          },
+
+          onTTSChunk(requestId, audioChunk, audioChunkIndex) {
+            TTSDebugLogger.updateSession(chatRequestId, { 
+              audioChunksReceived: audioChunkIndex + 1 
+            });
+            TTSDebugLogger.logStage(chatRequestId, `Audio chunk ${audioChunkIndex} received`, {
+              requestId,
+              base64Length: audioChunk?.length,
+              chunkIndex: audioChunkIndex
+            });
+
+            try {
+              if (!AudioDebugger.validate(audioChunk, AudioFormat.BASE64_STRING)) {
+                throw new Error('Invalid base64 audio data');
+              }
+
+              AudioDebugger.log('Raw audio chunk', audioChunk, AudioFormat.BASE64_STRING, {
+                chunkIndex: audioChunkIndex,
+                requestId
+              });
+
+              const uint8Array = AudioConverter.base64ToUint8Array(audioChunk);
+
+              TTSDebugLogger.logStage(chatRequestId, `Converted chunk ${audioChunkIndex} to Uint8Array`, {
+                byteLength: uint8Array.length
+              });
+    
+              enqueueAudioChunk(
+                chatRequestId,
+                audioChunkIndex,
+                uint8Array, 
+                assistantMessageId
+              );
+              
+              TTSDebugLogger.logStage(chatRequestId, `Enqueued chunk ${audioChunkIndex} for playback`);
+              console.groupEnd();
+            } catch (error: any) {
+              TTSDebugLogger.logError(chatRequestId, `Chunk ${audioChunkIndex} processing failed: ${error.message}`, {
+                audioChunkIndex,
+                error: error.stack
+              });
+              console.groupEnd();
+              AudioDebugger.printSummary();
+            }
+          },
+
+          onTTSComplete(requestId, fullAudio, totalChunks) {
+            TTSDebugLogger.logStage(chatRequestId, 'TTS generation complete', {
+              requestId,
+              totalChunks,
+              fullAudioLength: fullAudio?.length
+            });
+
+            console.group(`✅ TTS Complete`);
+
+            try {
+              markRequestComplete(chatRequestId);
+              TTSDebugLogger.logStage(chatRequestId, 'Marked request complete in audio queue');
+
+              const uint8Array = AudioConverter.base64ToUint8Array(fullAudio);
+
+              AudioDebugger.log('Full audio', uint8Array, AudioFormat.UINT8_ARRAY, {
+                totalChunks,
+                requestId: chatRequestId
+              });
+                
+              setMessages(prev => {
+                const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && msg.id === assistantMessageId)
+                const assistantMessage = prev[assistantMessageIndex];
+                
+                if (assistantMessage) {
+                  TTSDebugLogger.logStage(chatRequestId, 'Stored full audio in message');
+                  return [
+                    ...prev.slice(0, assistantMessageIndex), 
+                    { ...assistantMessage, audioData: uint8Array },
+                    ...prev.slice(assistantMessageIndex + 1), 
+                  ];
+                }
+
+                TTSDebugLogger.logError(chatRequestId, 'Assistant message not found when storing audio');
+                return [...prev];
+              });
+
+              TTSDebugLogger.printSummary(chatRequestId);
+              AudioDebugger.printSummary();
+              AudioDebugger.clearLogs();
+              TTSDebugLogger.clearSession(chatRequestId);
+
+              console.groupEnd();
+            } catch (error: any) {
+              TTSDebugLogger.logError(chatRequestId, `TTS complete processing failed: ${error.message}`, {
+                error: error.stack
+              });
+              console.groupEnd();
+            }
+          },
+          onError: (errorMsg) => {
+            TTSDebugLogger.logError(chatRequestId, errorMsg);
+            TTSDebugLogger.printSummary(chatRequestId);
+            AudioDebugger.printSummary();
+    
+            setError(errorMsg);
+            setIsLoading(false);
+            setTranscript('');
+          }
+        }
+      );
+    } catch (err: any) {
+      console.error('Launch language conversation error:', err);
+      setError(err.message || 'Failed to launch language conversation');
+      setIsLoading(false);
+    }
+  }, []);
+
   return (
     <div className="flex flex-row justify-center pb-4 md:pb-8 h-dvh bg-background">
       <div className="flex flex-col justify-between items-center gap-4">
@@ -270,7 +481,7 @@ export function Chat({
           ref={messagesContainerRef}
           className="flex flex-col gap-4 h-full w-dvw items-center overflow-y-scroll"
         >
-          {messages.length === 0 && <Overview />}
+          {messages.length === 0 && <Overview launchConversation={launchLanguageConversation} />}
           
           {/* Audiocontext initialized: {String(isInitialized)}
           <br/>

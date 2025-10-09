@@ -3,7 +3,9 @@ import Link from "next/link";
 
 import { LogoGoogle, MessageIcon, VercelIcon } from "./icons";
 
-export const Overview = () => {
+export const Overview = ({ launchConversation }: {
+  launchConversation: (args: any) => void;
+}) => {
   return (
     <motion.div
       key="overview"
@@ -18,9 +20,41 @@ export const Overview = () => {
           <MessageIcon /> Say Hi to Chatter
         </p>
         <p>
-          Chatter is a voice-first chat app designed for effortless, hands-free interaction or traditional typing. Press the microphone button to speak — Chatter hears your voice, transcribes it in real time, and responds for a fluid, natural conversation experience.
+          Chatter is a voice-first language-learning app. Select an instructor or language to start conversating. Press the microphone button to speak — your instructor hears your voice, transcribes it in real time, and responds for a fluid, natural conversation experience.
         </p>
+        <div>
+          Select a language
+          <div>
+            {languagesAndInstructors.map(l => <Flag code={l.code} onPress={() => launchConversation(l.language)} />)}
+          </div>
+        </div>
       </div>
     </motion.div>
   );
+};
+
+interface LanguageConfig {
+  code: string;
+  language: string;
+  "instructor"?: {
+    "name": string
+  }
+};
+
+const languagesAndInstructors: LanguageConfig[] = [
+  {
+    code: 'DE',
+    language: 'German',
+  }
+];
+
+import { FlagIcon } from "react-flag-kit";
+import { Button } from "../ui/button";
+
+function Flag ({ code, onPress }: { code: any; onPress: any }) {
+  return (
+  <Button onClick={onPress} className='hover:bg-transparent rounded-full bg-transparent'>
+    <FlagIcon code={code} size={36} />
+  </Button>
+  )
 };

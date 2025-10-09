@@ -212,11 +212,11 @@ export function MultimodalInput({
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
 
-              if (isLoading) {
-                toast.error("Please wait for the model to finish its response!");
-              } else {
+              // if (isLoading) {
+              //   toast.error("Please wait for the model to finish its response!");
+              // } else {
                 submitForm();
-              }
+              // }
             }
           }}
         />
