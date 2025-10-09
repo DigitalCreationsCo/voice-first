@@ -1,13 +1,10 @@
 "use client";
 
-import { FileUIPart, UIToolInvocation } from "ai";
 import { motion } from "framer-motion";
-import { ReactNode } from "react";
-
 import { BotIcon, UserIcon } from "../custom/icons";
 import { Markdown } from "../custom/markdown";
 import { PreviewAttachment } from "./preview-attachment";
-import { PlayIcon, Square } from "lucide-react";
+import { PlayIcon, Square, Volume2Icon } from "lucide-react";
 import { Button } from "../ui/button";
 import { UIMessage } from "@/lib/utils";
 // import { Weather } from "../custom/weather";
@@ -74,7 +71,7 @@ export const Message = ({
               disabled={isPlayAudioDisabled}
               className="text-xs"
             >
-              {isCurrentlyPlaying ? <Square size={12} /> : <PlayIcon size={12} />}
+              {isCurrentlyPlaying ? <Volume2Icon size={12} /> : <PlayIcon size={12} />}
             </Button>
           </div>
         )}

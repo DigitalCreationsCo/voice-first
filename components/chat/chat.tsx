@@ -257,13 +257,6 @@ export function Chat({
             markRequestComplete(chatRequestId);
             TTSDebugLogger.logStage(chatRequestId, 'Marked request complete in audio queue');
 
-            const uint8Array = AudioConverter.base64ToUint8Array(fullAudio);
-
-            AudioDebugger.log('Full audio', uint8Array, AudioFormat.UINT8_ARRAY, {
-              totalChunks,
-              requestId: chatRequestId
-            });
-
             setMessages(prev => {
               const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && msg.id === assistantMessageId)
               const assistantMessage = prev[assistantMessageIndex];
@@ -272,7 +265,7 @@ export function Chat({
                 TTSDebugLogger.logStage(chatRequestId, 'Stored full audio in message');
                 return [
                   ...prev.slice(0, assistantMessageIndex), 
-                  { ...assistantMessage, audioData: uint8Array },
+                  { ...assistantMessage, audioData: fullAudio },
                   ...prev.slice(assistantMessageIndex + 1), 
                 ];
               }
@@ -341,7 +334,6 @@ export function Chat({
       })
 
       setMessages(prev => [...prev, firstAssistantMessage]);
-      // setIsLoading(true);
       setAllowConcurrentRequests(true);
 
       const chatRequestId = '1'
@@ -407,13 +399,6 @@ export function Chat({
               markRequestComplete(chatRequestId);
               TTSDebugLogger.logStage(chatRequestId, 'Marked request complete in audio queue');
 
-              const uint8Array = AudioConverter.base64ToUint8Array(fullAudio);
-
-              AudioDebugger.log('Full audio', uint8Array, AudioFormat.UINT8_ARRAY, {
-                totalChunks,
-                requestId: chatRequestId
-              });
-                
               setMessages(prev => {
                 const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && msg.id === assistantMessageId)
                 const assistantMessage = prev[assistantMessageIndex];
@@ -422,7 +407,7 @@ export function Chat({
                   TTSDebugLogger.logStage(chatRequestId, 'Stored full audio in message');
                   return [
                     ...prev.slice(0, assistantMessageIndex), 
-                    { ...assistantMessage, audioData: uint8Array },
+                    { ...assistantMessage, audioData: fullAudio },
                     ...prev.slice(assistantMessageIndex + 1), 
                   ];
                 }

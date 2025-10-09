@@ -232,8 +232,8 @@ class ChatWebSocketClient {
       console.warn('   ⚠️ Request found but no onTTSComplete callback');
     }
 
-    console.log(`   🗑️ Cleaning up pending request: ${message.parentRequestId}`);
-    this.pendingRequests.delete(message.parentRequestId);
+    // console.log(`   🗑️ Cleaning up pending request: ${message.parentRequestId}`);
+    // this.pendingRequests.delete(message.parentRequestId);
   }
 
   private handleError(message: any) {

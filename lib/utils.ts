@@ -201,7 +201,7 @@ interface CreateUIMessage {
   content: string;
   timestamp?: number;
   isAudio?: boolean;
-  audioData?: Uint8Array;
+  audioData?: string;
 }
 
 export interface UIMessage {
@@ -210,7 +210,7 @@ export interface UIMessage {
   content: string;
   timestamp: number;
   isAudio: boolean;
-  audioData?: Uint8Array;
+  audioData?: string;
 };
 
 export function buildUIMessage(props: CreateUIMessage):UIMessage {
@@ -220,7 +220,7 @@ export function buildUIMessage(props: CreateUIMessage):UIMessage {
     content: props.content.trim() || '',
     timestamp: Date.now(),
     isAudio: props.isAudio || false,
-    audioData: props.audioData || undefined,
+    audioData: props.audioData,
   };
 };
 
