@@ -42,6 +42,8 @@ async function handleChatRequest(ws: any, message: any) {
       parts: [{ text: msg.content }],
     }));
 
+    // why are there no updates from the parser??
+
     try {
       const result = await genAI.models.generateContentStream({
         model: "gemini-2.0-flash",
@@ -51,10 +53,13 @@ async function handleChatRequest(ws: any, message: any) {
 
 Constraints:
 1. <numeric_rating> must be a number between 0 and 100 representing correctness. Can be omitted if the user does not respond in the chosen language.
-2. <numeric_difficulty> must be an number between 1 and 5 representing difficulty level to understand your text in the chosen language.
+2. <numeric_difficulty> must be an number between 1 and 5 representing difficulty level.
 3. <your_text_response> is the text response for the user, and can include punctuation and multiple sentences.
-4. Do not include extra words, quotes, or explanations. Output must strictly follow the format above, so it can be parsed automatically.
+4. Do not include extra words, quotes, or explanations outside the format.
 5. Respond in the language chosen by the user only.
+
+Example output 1: "rating: 85; difficulty: 3; text: Bonjour! Comment allez-vous?;"
+Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra conversación. ¿Sobre qué te gustaría hablar? ;"
 `,
           responseMimeType: "text/plain",
           maxOutputTokens: 200,
@@ -67,38 +72,56 @@ Constraints:
         throw e;
       });
 
-      let streamParserConfig: ParserConfig = {
+      const terminatingChar = ';';
+      const streamParserConfig: ParserConfig = {
         keys: ["rating", "difficulty", "text"],
-        optionalKeys: ["rating", "difficulty"],
         streamKeys: ["text"],
+        optionalKeys: ["rating", "difficulty"],
+        terminator: terminatingChar,
+        delimiter: ':'
       };
+
       let parser = createParser(streamParserConfig);
+
+      const testParser = createParser(streamParserConfig);
+      const testResult = parseChunk(testParser, "text: Hello;");
+      console.log('TEST PARSE:', testResult.updates);
 
       let fullTextResponse = '';
       let chunkIndex = 0; 
       let isMetaSent = false;
 
-      for await (const chunk of result) {
-        const text = chunk.text;
-        console.log('handleChatRequest text: ', text);
-        
+      let res = await result.next();
+      while (!res.done) {
+        let text = res.value.text;
+
         if (!text) {
           console.error('❌ No text chunk returned');
           ws.send(JSON.stringify({
             type: 'error',
             error: 'No text chunk response'
           }));
+          if (result.return) await result.return(null);
           return;
         }
 
-        const { parser: newParser, updates} = parseChunk(parser, text);
+        console.log('RAW CHUNK:', text);
+        console.log('CONTAINS "rating:"?', text.includes('rating:'));
+        console.log('CONTAINS "text:"?', text.includes('text:'));
+
+        text = text.replace(/[\r\n]+$/, '');
+        fullTextResponse += text;
+
+        const { parser: newParser, updates } = parseChunk(parser, text);
         parser = newParser;
 
+        console.log(`Updates from parser for chunkIndex ${chunkIndex}:`, updates.length, updates);
+
         for (const update of updates) {
-          console.log('handleChatRequest stream parser update: ', update);
+          console.log('Update:', update);
 
           if (update.type === "meta" && !isMetaSent && ws.readyState === ws.OPEN) {
-            const { rating, difficulty } = update.data
+            const { rating, difficulty } = update.data;
 
             ws.send(JSON.stringify({
               type: "stream_start",
@@ -113,28 +136,29 @@ Constraints:
 
           if (update.type === "skip") {
             console.log(`⏭️ Skipped optional key: ${update.key}`);
-        }
+          }
 
           if (update.type === "stream") {
+            console.log('Stream update: ', update);
+
             if (ws.readyState === ws.OPEN) {
               fullTextResponse += update.delta;
-              
+
               ws.send(JSON.stringify({
                 type: "stream_chunk",
                 content: update.delta,
-                chunkIndex,
-                finish_reason: null,
-                requestId: message.requestId
               }));
-    
-              chunkIndex++;
             }
           }
-          
+
           if (update.type === "complete") {
             console.log("  [COMPLETE]", update.data);
           }
         }
+
+        const nextRes = await result.next();
+        res = nextRes;
+        chunkIndex++;
       }
 
       // Send completion signal

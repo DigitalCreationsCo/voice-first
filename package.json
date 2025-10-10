@@ -7,7 +7,7 @@
   },
 "homepage": "https://next-auth-example.vercel.app",
   "scripts": {
-    "dev": "next dev",
+    "dev": "rm -rf .next && next dev",
     "dev-server": "tsx watch server.ts",
     "build": "tsx db/migrate && next build",
     "build-server": "tsx db/migrate && tsc",
