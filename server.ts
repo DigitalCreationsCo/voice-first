@@ -83,10 +83,6 @@ Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra co
 
       let parser = createParser(streamParserConfig);
 
-      const testParser = createParser(streamParserConfig);
-      const testResult = parseChunk(testParser, "text: Hello;");
-      console.log('TEST PARSE:', testResult.updates);
-
       let fullTextResponse = '';
       let chunkIndex = 0; 
       let isMetaSent = false;
@@ -105,6 +101,14 @@ Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra co
           return;
         }
 
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: "stream_start",
+            message: "Starting to generate response",
+            requestId: message.requestId,
+          }));
+        }
+
         console.log('RAW CHUNK:', text);
         console.log('CONTAINS "rating:"?', text.includes('rating:'));
         console.log('CONTAINS "text:"?', text.includes('text:'));
@@ -118,29 +122,17 @@ Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra co
         console.log(`Updates from parser for chunkIndex ${chunkIndex}:`, updates.length, updates);
 
         for (const update of updates) {
-          console.log('Update:', update);
 
-          if (update.type === "meta" && !isMetaSent && ws.readyState === ws.OPEN) {
-            const { rating, difficulty } = update.data;
-
-            ws.send(JSON.stringify({
-              type: "stream_start",
-              message: "Starting to generate response",
-              requestId: message.requestId,
-              rating,
-              difficulty,
-            }));
-
-            isMetaSent = true;
+          if (update.type === "meta") {
+            console.log(`Meta update: ${update}`);
           }
 
           if (update.type === "skip") {
-            console.log(`⏭️ Skipped optional key: ${update.key}`);
+            console.log(`Skipped optional key: ${update.key}`);
           }
 
           if (update.type === "stream") {
             console.log('Stream update: ', update);
-
             if (ws.readyState === ws.OPEN) {
               fullTextResponse += update.delta;
 
@@ -153,6 +145,18 @@ Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra co
 
           if (update.type === "complete") {
             console.log("  [COMPLETE]", update.data);
+
+            // Send completion signal
+            if (ws.readyState === ws.OPEN) {
+              ws.send(JSON.stringify({
+                type: "stream_complete",
+                content: fullTextResponse,
+                totalChunks: chunkIndex,
+                finish_reason: "stop",
+                requestId: message.requestId,
+                parsed: update.data
+              }));
+            }
           }
         }
 
@@ -160,18 +164,6 @@ Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra co
         res = nextRes;
         chunkIndex++;
       }
-
-      // Send completion signal
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({
-          type: "stream_complete",
-          content: fullTextResponse,
-          totalChunks: chunkIndex,
-          finish_reason: "stop",
-          requestId: message.requestId
-        }));
-      }
-
     } catch (streamError: any) {
       console.error('Stream generation error:', streamError);
       if (ws.readyState === ws.OPEN) {

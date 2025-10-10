@@ -1,7 +1,7 @@
 export interface ChatMessageCallbacks {
   onStreamStart?: (message: any) => void;
   onChunk?: (requestId: string, chunk: string, chunkIndex: number) => void;
-  onComplete?: (fullResponse: string) => void;
+  onComplete?: (fullResponse: string, message: any) => void;
   onError?: (error: string) => void;
   onTTSStreamStart?: (message: any) => void;
   onTTSChunk?: (parentRequestId: string, audioChunk: string, chunkIndex: number) => void;
@@ -154,7 +154,7 @@ class ChatWebSocketClient {
     if (request) {
       if (request.onComplete) {
         console.log('   ✅ Calling onComplete callback');
-        request.onComplete(message.content);
+        request.onComplete(message.content, message);
       }
       // Don't delete here - TTS might still need it
       // this.pendingRequests.delete(message.requestId);
