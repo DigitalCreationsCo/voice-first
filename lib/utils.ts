@@ -298,16 +298,9 @@ export interface StreamParser {
   metaEmitted: boolean;
   keyStartTime: number;
   skippedKeys: Set<string>;
-  completeEmitted?: boolean;
-  lastStreamEmitted: Record<string, number>;
 }
 
 export function createParser(config: ParserConfig): StreamParser {
-  const lastStreamEmitted: Record<string, number> = {};
-  (config.streamKeys || []).forEach(k => {
-    lastStreamEmitted[k] = 0;
-  });
-
   return {
     buffer: "",
     state: "seeking_key",
@@ -317,13 +310,11 @@ export function createParser(config: ParserConfig): StreamParser {
       delimiter: ":",
       terminator: ";",
       optionalKeys: [],
-      ...config,
+      ...config
     },
     metaEmitted: false,
     keyStartTime: Date.now(),
-    skippedKeys: new Set(),
-    completeEmitted: false,
-    lastStreamEmitted,
+    skippedKeys: new Set()
   };
 }
 
@@ -331,161 +322,323 @@ function isOptionalKey(key: string, config: ParserConfig) {
   return config.optionalKeys?.includes(key) ?? false;
 }
 
-function shouldSkipOptionalKey(parser: StreamParser): boolean {
-  const currentKey = parser.config.keys[parser.currentKeyIndex];
-  if (!isOptionalKey(currentKey, parser.config)) return false;
-  if (!parser.config.timeout) return false;
-  return Date.now() - parser.keyStartTime > parser.config.timeout;
-}
-
-function nextKeyAppearsFirst(parser: StreamParser): boolean {
-  const currentKey = parser.config.keys[parser.currentKeyIndex];
-  const nextKey = parser.config.keys[parser.currentKeyIndex + 1];
-  if (!nextKey || !isOptionalKey(currentKey, parser.config)) return false;
-  const currentKeyIdx = parser.buffer.indexOf(currentKey + parser.config.delimiter!);
-  const nextKeyIdx = parser.buffer.indexOf(nextKey + parser.config.delimiter!);
-  return nextKeyIdx !== -1 && (currentKeyIdx === -1 || nextKeyIdx < currentKeyIdx);
-}
-
-function skipOptionalKey(parser: StreamParser): StreamUpdate[] {
-  const currentKey = parser.config.keys[parser.currentKeyIndex];
-  parser.skippedKeys.add(currentKey);
-  parser.parsed[currentKey] = undefined;
-  parser.currentKeyIndex++;
-  parser.keyStartTime = Date.now();
-  return [{ type: "skip", key: currentKey }];
-}
-
+/**
+ * Parse a chunk of incoming text.
+ * Emits meta update only once, after all static keys are parsed/skipped.
+ */
 export function parseChunk(
   parser: StreamParser,
   chunk: string
 ): { parser: StreamParser; updates: StreamUpdate[] } {
   parser.buffer += chunk;
   const updates: StreamUpdate[] = [];
-  const metaData: ParsedData = {};
 
-  let buffer = parser.buffer;
+  const { keys, streamKeys, delimiter, terminator } = parser.config;
 
-  while (parser.currentKeyIndex < parser.config.keys.length) {
-    const currentKey = parser.config.keys[parser.currentKeyIndex];
-    const isOptional = isOptionalKey(currentKey, parser.config);
-    const isStreamKey = parser.config.streamKeys.includes(currentKey);
-
-    // Optional key skipping logic
-    if (isOptional) {
-      if (nextKeyAppearsFirst(parser) || shouldSkipOptionalKey(parser)) {
-        updates.push(...skipOptionalKey(parser));
-        buffer = parser.buffer;
-        continue;
-      }
-    }
-
-    // Find the key pattern (key + delimiter)
-    const delimiter = parser.config.delimiter!;
-    const keyPattern = currentKey + delimiter;
-    const keyIdx = buffer.indexOf(keyPattern);
-
-    if (keyIdx === -1) break;
-
-    // Skip to the value: after the delimiter and any whitespace
-    let valueStart = keyIdx + keyPattern.length;
+  // Helper: skip all missing contiguous optional keys that do not appear in the buffer at all
+  function maybeSkipMissingOptionals() {
     while (
-      buffer[valueStart] === " " ||
-      buffer[valueStart] === "\t" ||
-      buffer[valueStart] === "\r" ||
-      buffer[valueStart] === "\n"
+      parser.currentKeyIndex < keys.length &&
+      isOptionalKey(keys[parser.currentKeyIndex], parser.config)
     ) {
-      valueStart++;
-    }
-
-    // For static keys, read up to terminator
-    if (!isStreamKey) {
-      const termIdx = buffer.indexOf(parser.config.terminator!, valueStart);
-      if (termIdx === -1) break; // Wait for complete
-      let value = buffer.slice(valueStart, termIdx).trim();
-
-      parser.parsed[currentKey] = isNaN(Number(value)) ? value : Number(value);
-      metaData[currentKey] = parser.parsed[currentKey];
-
-      buffer = buffer.slice(termIdx + 1).trimStart();
-      parser.buffer = buffer;
+      // Only skip if this optional key does NOT appear *now* in the buffer,
+      // i.e. no keyPattern at any position in buffer.
+      const key = keys[parser.currentKeyIndex];
+      const pattern = key + delimiter!;
+      if (parser.buffer.indexOf(pattern) !== -1) {
+        break;
+      }
+      parser.skippedKeys.add(key);
+      parser.parsed[key] = undefined;
+      updates.push({ type: "skip", key });
       parser.currentKeyIndex++;
+      parser.state = "seeking_key";
       parser.keyStartTime = Date.now();
-      continue;
     }
+  }
 
-    // STREAMING KEY
-    let nextKeyStart = -1;
-    let foundNextKeyName = null;
-    for (let k = parser.currentKeyIndex + 1; k < parser.config.keys.length; ++k) {
-      const searchKey = parser.config.keys[k] + delimiter;
-      const idx = buffer.indexOf(searchKey, valueStart);
-      if (idx !== -1 && (nextKeyStart === -1 || idx < nextKeyStart)) {
-        nextKeyStart = idx;
-        foundNextKeyName = parser.config.keys[k];
+  // Helper: emits meta update once all static keys (non-stream) are available/skipped and hasn't been emitted
+  function maybeEmitMeta() {
+    if (!parser.metaEmitted) {
+      // Only emit after all static keys are processed (either parsed or skipped)
+      // That is, for all keys that are not streamKeys (static), the parsed/skip is present
+      let allStaticDone = true;
+      for (const key of keys) {
+        if (!streamKeys.includes(key)) {
+          if (
+            !Object.prototype.hasOwnProperty.call(parser.parsed, key) &&
+            !parser.skippedKeys.has(key)
+          ) {
+            allStaticDone = false;
+            break;
+          }
+        }
+      }
+      if (allStaticDone) {
+        // emit all non-stream keys
+        const metaData: ParsedData = {};
+        for (const key of keys) {
+          if (!streamKeys.includes(key)) {
+            if (
+              Object.prototype.hasOwnProperty.call(parser.parsed, key) ||
+              parser.skippedKeys.has(key)
+            ) {
+              metaData[key] = parser.parsed[key];
+            }
+          }
+        }
+        if (Object.keys(metaData).length > 0) {
+          updates.push({ type: "meta", data: metaData });
+        }
+        parser.metaEmitted = true;
       }
     }
-    const terminatorIdx = buffer.indexOf(parser.config.terminator!, valueStart);
-    let valueEnd: number | undefined;
-    if (terminatorIdx !== -1 && (nextKeyStart === -1 || terminatorIdx < nextKeyStart)) {
-      valueEnd = terminatorIdx;
-    } else if (nextKeyStart !== -1) {
-      valueEnd = nextKeyStart;
-    } else {
-      valueEnd = buffer.length;
+  }
+
+  mainloop: while (parser.currentKeyIndex < keys.length) {
+    // Try to skip missing optional keys before looking for keys in buffer
+    maybeSkipMissingOptionals();
+
+    if (parser.currentKeyIndex >= keys.length) {
+      break mainloop;
     }
 
-    // Track how much we've already emitted for THIS key
-    let alreadyEmitted = parser.lastStreamEmitted[currentKey] || 0;
+    const key = keys[parser.currentKeyIndex];
+    const isOptional = isOptionalKey(key, parser.config);
+    const isStreaming = streamKeys.includes(key);
 
-    let chunkValue = buffer.slice(valueStart, valueEnd);
+    // Always look for this key in buffer
+    const keyPattern = key + delimiter!;
+    const keyIdx = parser.buffer.indexOf(keyPattern);
 
-    // Delta: only emit new content
-    let delta = chunkValue.slice(alreadyEmitted);
-
-    if (delta.length > 0) {
-      updates.push({ type: "stream", key: currentKey, delta });
-      parser.parsed[currentKey] = (parser.parsed[currentKey] || "") + delta;
-      parser.lastStreamEmitted[currentKey] = alreadyEmitted + delta.length;
-    }
-
-    // Decide whether to advance to next key
-    let mustAdvance =
-      (terminatorIdx !== -1 && valueEnd === terminatorIdx) ||
-      (nextKeyStart !== -1 && valueEnd === nextKeyStart);
-
-    if (mustAdvance) {
-      // Remove this key from buffer
-      if (valueEnd === terminatorIdx) {
-        buffer = buffer.slice(terminatorIdx + 1).trimStart();
+    if (parser.state === "seeking_key") {
+      if (keyIdx !== -1) {
+        // Found key: eat until after keyPattern
+        // --- TRIM the whitespace between the delimiter and the value! ---
+        parser.buffer = parser.buffer.slice(keyIdx + keyPattern.length);
+        // Remove leading whitespace after delimiter
+        parser.buffer = parser.buffer.replace(/^\s+/, "");
+        parser.state = isStreaming ? "streaming" : "reading_static";
+        parser.keyStartTime = Date.now();
       } else {
-        buffer = buffer.slice(nextKeyStart).trimStart();
+        // Key not present in buffer
+        if (isOptional) {
+          let nextKeyIndex = parser.currentKeyIndex + 1;
+          // skip all directly following optionals if their keyPattern is not present
+          while (
+            nextKeyIndex < keys.length &&
+            isOptionalKey(keys[nextKeyIndex], parser.config) &&
+            parser.buffer.indexOf(keys[nextKeyIndex] + delimiter!) === -1
+          ) {
+            parser.skippedKeys.add(keys[nextKeyIndex]);
+            parser.parsed[keys[nextKeyIndex]] = undefined;
+            updates.push({ type: "skip", key: keys[nextKeyIndex] });
+            parser.state = "seeking_key";
+            parser.keyStartTime = Date.now();
+            nextKeyIndex++;
+            parser.currentKeyIndex = nextKeyIndex - 1;
+          }
+          // Now at first optional not found in buffer, check if next key appears
+          if (
+            parser.currentKeyIndex + 1 < keys.length &&
+            parser.buffer.indexOf(keys[parser.currentKeyIndex + 1] + delimiter!) !== -1
+          ) {
+            parser.skippedKeys.add(key);
+            parser.parsed[key] = undefined;
+            updates.push({ type: "skip", key });
+            parser.currentKeyIndex++;
+            parser.state = "seeking_key";
+            parser.keyStartTime = Date.now();
+            continue mainloop;
+          }
+        }
+        // Can't make further progress for now!
+        break mainloop;
       }
-      parser.buffer = buffer;
-      parser.currentKeyIndex++;
-      parser.keyStartTime = Date.now();
-      parser.lastStreamEmitted[currentKey] = 0;
-      continue;
-    } else {
-      // Didn't encounter terminator - can't advance key, so won't emit "complete".
-      break;
+    }
+
+    if (parser.state === "reading_static") {
+      // Value ends at earliest of (terminator) or (next key pattern)
+      let valueEndIdx = parser.buffer.indexOf(terminator!);
+
+      // Search for possible patterns for any subsequent keys (necessary for missing optional keys between)
+      let foundKeyAfterCurrent = false;
+      let optionalToSkip = [];
+      let nextPresentKeyPatternIdx = -1;
+      let nextPresentKey = "";
+
+      for (
+        let i = parser.currentKeyIndex + 1;
+        i < keys.length;
+        ++i
+      ) {
+        const k = keys[i];
+        const idx = parser.buffer.indexOf(k + delimiter!);
+        if (idx !== -1) {
+          if (nextPresentKeyPatternIdx === -1 || idx < nextPresentKeyPatternIdx) {
+            nextPresentKeyPatternIdx = idx;
+            nextPresentKey = k;
+          }
+          foundKeyAfterCurrent = true;
+          break;
+        } else if (isOptionalKey(k, parser.config)) {
+          optionalToSkip.push(k);
+          // keep looking for next present key
+        } else {
+          break;
+        }
+      }
+      // Now choose whichever comes first, terminator or next key pattern
+      if (
+        nextPresentKeyPatternIdx !== -1 &&
+        (valueEndIdx === -1 || nextPresentKeyPatternIdx < valueEndIdx)
+      ) {
+        valueEndIdx = nextPresentKeyPatternIdx;
+      }
+
+      if (valueEndIdx === -1) {
+        // Not enough data, wait for more
+        break mainloop;
+      } else {
+        // Parse the value
+        const rawSlice = parser.buffer.slice(0, valueEndIdx);
+        const rawValue = rawSlice.replace(/;$/, "").trim();
+        const numValue = Number(rawValue);
+        parser.parsed[key] = isNaN(numValue) ? rawValue : numValue;
+
+        parser.buffer =
+          valueEndIdx === nextPresentKeyPatternIdx
+            ? parser.buffer.slice(valueEndIdx)
+            : parser.buffer.slice(valueEndIdx + 1);
+
+        if (optionalToSkip.length > 0) {
+          for (const skipped of optionalToSkip) {
+            parser.skippedKeys.add(skipped);
+            parser.parsed[skipped] = undefined;
+            updates.push({ type: "skip", key: skipped });
+          }
+          parser.currentKeyIndex += optionalToSkip.length;
+        }
+
+        parser.currentKeyIndex++;
+        parser.state = "seeking_key";
+        parser.keyStartTime = Date.now();
+
+        // Defer meta emission until all static keys handled!
+        continue mainloop;
+      }
+    }
+
+    if (parser.state === "streaming") {
+      // In stream mode, emit everything up to next key/terminator
+      let streamEndIdx = parser.buffer.indexOf(terminator!);
+
+      let foundKeyAfterCurrent = false;
+      let optionalToSkip = [];
+      let nextPresentKeyPatternIdx = -1;
+      let nextPresentKey = "";
+
+      for (
+        let i = parser.currentKeyIndex + 1;
+        i < keys.length;
+        ++i
+      ) {
+        const k = keys[i];
+        const idx = parser.buffer.indexOf(k + delimiter!);
+        if (idx !== -1) {
+          if (nextPresentKeyPatternIdx === -1 || idx < nextPresentKeyPatternIdx) {
+            nextPresentKeyPatternIdx = idx;
+            nextPresentKey = k;
+          }
+          foundKeyAfterCurrent = true;
+          break;
+        } else if (isOptionalKey(k, parser.config)) {
+          optionalToSkip.push(k);
+        } else {
+          break;
+        }
+      }
+
+      if (
+        nextPresentKeyPatternIdx !== -1 &&
+        (streamEndIdx === -1 || nextPresentKeyPatternIdx < streamEndIdx)
+      ) {
+        streamEndIdx = nextPresentKeyPatternIdx;
+      }
+
+      if (
+        streamEndIdx === -1 &&
+        parser.buffer.length === 0
+      ) {
+        break mainloop;
+      } else if (
+        streamEndIdx === -1
+      ) {
+        if (parser.buffer.length > 0) {
+          updates.push({ type: "stream", key, delta: parser.buffer });
+          parser.parsed[key] = (parser.parsed[key] || "") + parser.buffer;
+          parser.buffer = "";
+        }
+        break mainloop;
+      } else {
+        const delta = parser.buffer.slice(0, streamEndIdx).trimEnd();
+        if (delta.length > 0) {
+          updates.push({ type: "stream", key, delta });
+          parser.parsed[key] = (parser.parsed[key] || "") + delta;
+        }
+        parser.buffer =
+          streamEndIdx === nextPresentKeyPatternIdx
+            ? parser.buffer.slice(streamEndIdx)
+            : parser.buffer.slice(streamEndIdx + 1);
+
+        if (optionalToSkip.length > 0) {
+          for (const skipped of optionalToSkip) {
+            parser.skippedKeys.add(skipped);
+            parser.parsed[skipped] = undefined;
+            updates.push({ type: "skip", key: skipped });
+          }
+          parser.currentKeyIndex += optionalToSkip.length;
+        }
+
+        parser.currentKeyIndex++;
+        parser.state = "seeking_key";
+        parser.keyStartTime = Date.now();
+        continue mainloop;
+      }
     }
   }
 
-  // Emit meta if we parsed static key(s)
-  if (!parser.metaEmitted && Object.keys(metaData).length > 0) {
-    updates.push({ type: "meta", data: metaData });
-    parser.metaEmitted = true;
-  }
+  // Only emit meta now, after all static keys handled (or at completion)
+  maybeEmitMeta();
 
-  // Only emit a single complete when all keys are parsed, and only once ever
+  // If completed, emit complete update (only on new complete)
   if (
-    parser.currentKeyIndex >= parser.config.keys.length &&
-    !parser.completeEmitted
+    parser.currentKeyIndex >= keys.length &&
+    !updates.some((u) => u.type === "complete")
   ) {
     updates.push({ type: "complete", data: parser.parsed });
-    parser.completeEmitted = true;
   }
 
   return { parser, updates };
+}
+
+/**
+ * Utility: Check if parsing is complete
+ */
+export function isParsingComplete(parser: StreamParser): boolean {
+  return parser.currentKeyIndex >= parser.config.keys.length;
+}
+
+/**
+ * Utility: Get current parsed data
+ */
+export function getParsedData(parser: StreamParser): ParsedData {
+  return { ...parser.parsed };
+}
+
+/**
+ * Utility: Reset parser to initial state
+ */
+export function resetParser(parser: StreamParser): StreamParser {
+  return createParser(parser.config);
 }
