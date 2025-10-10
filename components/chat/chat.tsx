@@ -129,6 +129,20 @@ export function Chat({
         onStreamStart: (message) => {
           TTSDebugLogger.startSession(chatRequestId, assistantMessageId);
           TTSDebugLogger.logStage(chatRequestId, 'Chat stream started', { requestId: message.requestId });
+
+          const { rating, difficulty } = message;
+          if (!Number.isNaN(rating)) {  
+            setMessages(prev => {
+              const previousUserMessageIndex = prev.findIndex(msg => msg.role === 'user' && msg.id === userMessageId);
+              const previousUserMessage = prev[previousUserMessageIndex];
+              
+              return [
+                ...prev.slice(0, previousUserMessageIndex), 
+                { ...previousUserMessage, languageRating: rating },
+                ...prev.slice(previousUserMessageIndex + 1), 
+              ];
+            });
+          }
         },
 
         onChunk: async (requestId, textChunk, chunkIndex) => {
@@ -141,8 +155,9 @@ export function Chat({
           });
 
           setIsLoading(true);
+          
           setMessages(prev => {
-            const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && msg.id === assistantMessageId)
+            const assistantMessageIndex = prev.findIndex(msg => msg.role === 'assistant' && msg.id === assistantMessageId);
             const assistantMessage = prev[assistantMessageIndex];
             
             if (assistantMessage) {
@@ -306,10 +321,10 @@ export function Chat({
 
   const handleStartListening = useCallback(() => {
     try {
-      if (isPlaying) {
-        toast.info('Please wait for audio to finish');
-        return;
-      }
+      // if (isPlaying) {
+      //   toast.info('Please wait for audio to finish');
+      //   return;
+      // }
 
       startListening();
     } catch (error: any) {
@@ -468,7 +483,7 @@ export function Chat({
               chatId={id}
               message={message}
               isPlayAudioDisabled={isPlaying && currentlyPlayingMessageId !== message.id}
-              onPlayAudio={() => 
+              onPlayAudio={() =>
                 currentlyPlayingMessageId === message.id
                   ? stopPlayback()
                   : playMessageAudio(message.audioData!, message.id)}

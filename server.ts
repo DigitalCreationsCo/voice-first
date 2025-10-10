@@ -3,6 +3,7 @@ import { WebSocketServer } from 'ws';
 import { ApiError, GoogleGenAI, Modality } from "@google/genai";
 import { config } from 'dotenv';
 import { AudioDebugger, AudioFormat } from './lib/audio/helpers.js';
+import { createParser, parseChunk, ParserConfig } from './lib/utils.js';
 
 config({
   path: ".env.local",
@@ -41,18 +42,21 @@ async function handleChatRequest(ws: any, message: any) {
       parts: [{ text: msg.content }],
     }));
 
-    // Send stream start event
-    ws.send(JSON.stringify({
-      type: "stream_start",
-      message: "Starting to generate response",
-      requestId: message.requestId
-    }));
-
     try {
       const result = await genAI.models.generateContentStream({
         model: "gemini-2.0-flash",
         contents: history,
         config: {
+          systemInstruction: `You are a foreign language tutor. Respond to the user in the chosen language and practice conversational speaking. Always provide a text response. If the user responds using the chosen language, provide a rating and difficulty. Format your response exactly as: "rating: <numeric_rating>; difficulty: <numeric_difficulty>; text: <your_text_response>;"
+
+Constraints:
+1. <numeric_rating> must be a number between 0 and 100 representing correctness. Can be omitted if the user does not respond in the chosen language.
+2. <numeric_difficulty> must be an number between 1 and 5 representing difficulty level to understand your text in the chosen language.
+3. <your_text_response> is the text response for the user, and can include punctuation and multiple sentences.
+4. Do not include extra words, quotes, or explanations. Output must strictly follow the format above, so it can be parsed automatically.
+5. Respond in the language chosen by the user only.
+`,
+          responseMimeType: "text/plain",
           maxOutputTokens: 200,
           candidateCount: 1
         },
@@ -63,25 +67,73 @@ async function handleChatRequest(ws: any, message: any) {
         throw e;
       });
 
-      let fullResponse = '';
-      let chunkIndex = 0; 
+      let streamParserConfig: ParserConfig = {
+        keys: ["rating", "difficulty", "text"],
+        optionalKeys: ["rating", "difficulty"],
+        streamKeys: ["text"],
+      };
+      let parser = createParser(streamParserConfig);
 
-      // Stream response chunks
+      let fullTextResponse = '';
+      let chunkIndex = 0; 
+      let isMetaSent = false;
+
       for await (const chunk of result) {
         const text = chunk.text;
+        console.log('handleChatRequest text: ', text);
         
-        if (text && ws.readyState === ws.OPEN) {
-          fullResponse += text;
-          
+        if (!text) {
+          console.error('❌ No text chunk returned');
           ws.send(JSON.stringify({
-            type: "stream_chunk",
-            content: text,
-            chunkIndex: chunkIndex,
-            finish_reason: null,
-            requestId: message.requestId
+            type: 'error',
+            error: 'No text chunk response'
           }));
+          return;
+        }
 
-          chunkIndex++;
+        const { parser: newParser, updates} = parseChunk(parser, text);
+        parser = newParser;
+
+        for (const update of updates) {
+          console.log('handleChatRequest stream parser update: ', update);
+
+          if (update.type === "meta" && !isMetaSent && ws.readyState === ws.OPEN) {
+            const { rating, difficulty } = update.data
+
+            ws.send(JSON.stringify({
+              type: "stream_start",
+              message: "Starting to generate response",
+              requestId: message.requestId,
+              rating,
+              difficulty,
+            }));
+
+            isMetaSent = true;
+          }
+
+          if (update.type === "skip") {
+            console.log(`⏭️ Skipped optional key: ${update.key}`);
+        }
+
+          if (update.type === "stream") {
+            if (ws.readyState === ws.OPEN) {
+              fullTextResponse += update.delta;
+              
+              ws.send(JSON.stringify({
+                type: "stream_chunk",
+                content: update.delta,
+                chunkIndex,
+                finish_reason: null,
+                requestId: message.requestId
+              }));
+    
+              chunkIndex++;
+            }
+          }
+          
+          if (update.type === "complete") {
+            console.log("  [COMPLETE]", update.data);
+          }
         }
       }
 
@@ -89,7 +141,7 @@ async function handleChatRequest(ws: any, message: any) {
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({
           type: "stream_complete",
-          content: fullResponse,
+          content: fullTextResponse,
           totalChunks: chunkIndex,
           finish_reason: "stop",
           requestId: message.requestId
@@ -203,7 +255,6 @@ async function handleTTSRequest(ws: any, message: any) {
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text: limitedText }] }],
         config: {
-          maxOutputTokens: 300,
           candidateCount: 1,
           responseModalities: [Modality.AUDIO],
           speechConfig: {

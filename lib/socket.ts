@@ -118,9 +118,9 @@ class ChatWebSocketClient {
   }
 
   private handleStreamStart(message: any) {
-    console.log('📨 Chat Stream Start Handler:', {
+    console.log('📨 Chat Stream Start Handler:', message, {
       requestId: message.requestId,
-      hasPendingRequest: this.pendingRequests.has(message.requestId)
+      hasPendingRequest: this.pendingRequests.has(message.requestId),
     });
 
     const request = this.pendingRequests.get(message.requestId);
