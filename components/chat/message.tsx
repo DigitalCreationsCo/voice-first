@@ -6,7 +6,9 @@ import { Markdown } from "../custom/markdown";
 import { PreviewAttachment } from "./preview-attachment";
 import { PlayIcon, Square, StarIcon, Volume2Icon } from "lucide-react";
 import { Button } from "../ui/button";
-import { UIMessage } from "@/lib/utils";
+import { TranslationData, UIMessage } from "@/lib/utils";
+import Translation from "../language/translation";
+import { useState } from "react";
 // import { Weather } from "../custom/weather";
 // import { AuthorizePayment } from "../flights/authorize-payment";
 // import { DisplayBoardingPass } from "../flights/boarding-pass";
@@ -23,15 +25,22 @@ export const Message = ({
   attachments,
   isPlayAudioDisabled,
   onPlayAudio,
-  isCurrentlyPlaying
+  isCurrentlyPlaying,
 }: {
   chatId: string;
   message: UIMessage;
   toolInvocations?: Array<any> | undefined;
   attachments?: Array<any>;
   isPlayAudioDisabled: boolean;
-  onPlayAudio: () => void;isCurrentlyPlaying: boolean;
+  onPlayAudio: () => void;
+  isCurrentlyPlaying: boolean;
 }) => {
+  const [wordKey, setWordKey] = useState('');
+
+  const handleWordClick = (word: string) => {
+    setWordKey(word);
+  };
+
   return (
     <motion.div
       className="max-w-2xl w-full md:px-0 px-4 first-of-type:pt-20 flex justify-start"
@@ -59,7 +68,13 @@ export const Message = ({
           >
             {message.role === 'assistant' ? <BotIcon /> : <UserIcon />}
           </span>
-        <Markdown>{message.content}</Markdown>
+        <Markdown
+          wordKey={wordKey}
+          translations={message.translations}
+          onWordClick={handleWordClick}
+        >
+          {message.content}
+        </Markdown>
         </div>
 
         {message.role === 'assistant' && message.audioData && (
@@ -92,6 +107,15 @@ export const Message = ({
             ))}
           </div>
         )}
+
+        {message.role === "assistant" && message.translations && wordKey && (
+          <Translation
+            translationData={message.translations}
+            wordKey={wordKey}
+            selectedLanguage={"German"}
+            />
+        )}
+        
       </div>
     </motion.div>
   );
