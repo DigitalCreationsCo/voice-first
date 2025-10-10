@@ -204,6 +204,7 @@ interface CreateUIMessage {
   isAudio?: boolean;
   audioData?: string;
   languageRating?: number;
+  translations?: Record<string, string>;
 }
 
 export interface UIMessage {
@@ -214,6 +215,7 @@ export interface UIMessage {
   isAudio: boolean;
   audioData?: string;
   languageRating?: number;
+  translations?: TranslationData;
 };
 
 export function buildUIMessage(props: CreateUIMessage):UIMessage {
@@ -223,7 +225,17 @@ export function buildUIMessage(props: CreateUIMessage):UIMessage {
     content: props.content.trim() || '',
     timestamp: Date.now(),
     isAudio: props.isAudio || false,
-    audioData: props.audioData
+    audioData: props.audioData,
+  };
+};
+
+export interface TranslationData {
+  [key: string]: {
+    word: string;
+    language: string;
+    english: string;
+    phonetic: string;
+    audioUrl?: string;
   };
 };
 
