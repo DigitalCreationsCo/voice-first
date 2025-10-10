@@ -20,9 +20,9 @@ export default async function Navbar() {
       <div className="bg-background absolute top-0 left-0 w-dvw py-2 px-3 justify-between flex flex-row items-center z-30">
         <div className="flex flex-row gap-3 items-center">
           <History user={session?.user} />
-          <div className="flex flex-row gap-4 items-center text-lg text-zinc-900 dark:text-zinc-50">
-            <MessageIcon />
-            <h1>Chatter</h1>
+          <div className="flex flex-row gap-4 items-center text-lg text-zinc-900 dark:text-zinc-50 ml-3">
+            <MessageIcon size={20} />
+            <h1 className="text-zinc-900 dark:text-zinc-50 text-lg">Chatter</h1>
           </div>
         </div>
 

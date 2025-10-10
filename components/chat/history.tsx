@@ -88,7 +88,7 @@ export const History = ({ user }: { user: User | undefined }) => {
   return (
     <>
       <Button
-        variant="outline"
+        variant="ghost"
         className="p-1.5 h-fit"
         onClick={() => {
           setIsHistoryVisible(true);

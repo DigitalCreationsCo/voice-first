@@ -9,23 +9,29 @@ export const Overview = ({ launchConversation }: {
   return (
     <motion.div
       key="overview"
-      className="max-w-[500px] mt-20 mx-4 md:mx-0"
+      className="max-w-[500px] mt-20 mx-4 md:mx-0 cursor-default"
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.98 }}
       transition={{ delay: 0.5 }}
     >
       <div className="border-none bg-muted/50 rounded-2xl p-6 flex flex-col gap-4 text-zinc-500 text-sm dark:text-zinc-400 dark:border-zinc-700">
-        <p className="flex flex-row justify-center gap-4 items-center text-zinc-900 dark:text-zinc-50">
-          <MessageIcon /> Say Hi to Chatter
+        <p className="flex flex-row justify-center gap-4 items-center text-zinc-900 dark:text-zinc-50 text-lg">
+          <MessageIcon size={20} /> Say Hi to Chatter
         </p>
-        <p>
-          Chatter is a voice-first language-learning app. Select an instructor or language to start conversating. Press the microphone button to speak — your instructor hears your voice, transcribes it in real time, and responds for a fluid, natural conversation experience.
+        <p className="whitespace-pre-wrap">
+          {`Chatter is a voice-first app for learning to speak languages. 
+Select a language to start conversating.`}
         </p>
         <div>
-          Select a language
           <div>
-            {languagesAndInstructors.map(l => <Flag code={l.code} onPress={() => launchConversation(l.language)} />)}
+            {languagesAndInstructors.map(l => 
+              <Flag
+              key={`flag-${l.code}`} 
+              code={l.code} 
+              language={l.language}
+              onPress={() => launchConversation(l.language)} />
+            )}
           </div>
         </div>
       </div>
@@ -51,10 +57,15 @@ const languagesAndInstructors: LanguageConfig[] = [
 import { FlagIcon } from "react-flag-kit";
 import { Button } from "../ui/button";
 
-function Flag ({ code, onPress }: { code: any; onPress: any }) {
+function Flag ({ code, language, onPress }: { 
+  code: any; 
+  language: any;
+  onPress: any
+}) {
   return (
-  <Button onClick={onPress} className='hover:bg-transparent rounded-full bg-transparent'>
+  <Button onClick={onPress} className='h-fit border-none bg-transparent text-left border border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-300 rounded-lg p-3 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex flex-col gap-2 rounded-full'>
     <FlagIcon code={code} size={36} />
+    {language}
   </Button>
   )
 };

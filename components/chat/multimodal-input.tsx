@@ -155,7 +155,7 @@ export function MultimodalInput({
         )}
 
       <VoiceInputButton
-      isListening={isListening}
+      isListening={isListening || interimTranscript}
       toggleVoiceInput={toggleVoiceInput}
       />
 
@@ -188,22 +188,10 @@ export function MultimodalInput({
         </div>
       )} */}
 
-      {/* Voice input status */}
-      {(isListening || interimTranscript) && (
-        <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950 rounded-lg">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-            <span className="text-sm text-blue-700 dark:text-blue-300">
-              {isListening ? "Listening..." : "Processing..."}
-            </span>
-          </div>
-        </div>
-      )}
-
       <div className="relative">
         <Textarea
           ref={textareaRef}
-          placeholder={isListening ? "Type a message or speak" : "Send a message or click mic to speak..."}
+          placeholder={isListening ? "Type a message or Speak to send" : "Type a message or Press the microphone button to speak."}
           value={input}
           onChange={handleInput}
           className="min-h-[50px] overflow-hidden resize-none rounded-lg text-base bg-muted border-none pr-20"
