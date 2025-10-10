@@ -55,11 +55,12 @@ Constraints:
 1. <numeric_rating> must be a number between 0 and 100 representing correctness. Can be omitted if the user does not respond in the chosen language.
 2. <numeric_difficulty> must be an number between 1 and 5 representing difficulty level.
 3. <your_text_response> is the text response for the user, and can include punctuation and multiple sentences.
-4. Do not include extra words, quotes, or explanations outside the format.
-5. Respond in the language chosen by the user only.
+4. IMPORTANT: Use semicolons (;) to separate rating, difficulty, and text fields. The text response must end with a semicolon.
+5. Do not include extra words, quotes, or explanations outside the format.
+6. Respond in the language chosen by the user only.
 
 Example output 1: "rating: 85; difficulty: 3; text: Bonjour! Comment allez-vous?;"
-Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra conversación. ¿Sobre qué te gustaría hablar? ;"
+Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra conversación. ¿Sobre qué te gustaría hablar?;"
 `,
           responseMimeType: "text/plain",
           maxOutputTokens: 200,
@@ -81,11 +82,16 @@ Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra co
         delimiter: ':'
       };
 
+      const testResult = parseChunk(createParser(streamParserConfig), "rating: 85; difficulty: 3; text: Hello;");
+      const testResult2 = parseChunk(createParser(streamParserConfig), "text: Hello;");
+      const testResult3 = parseChunk(createParser(streamParserConfig), "text: Hello");
+      console.log('TEST PARSE:', testResult.updates);
+      console.log('TEST PARSE2:', testResult2.updates);
+      console.log('TEST PARSE3:', testResult3.updates);
+
       let parser = createParser(streamParserConfig);
 
-      let fullTextResponse = '';
       let chunkIndex = 0; 
-      let isMetaSent = false;
 
       let res = await result.next();
       while (!res.done) {
@@ -109,12 +115,11 @@ Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra co
           }));
         }
 
-        console.log('RAW CHUNK:', text);
+        console.log('\nRAW CHUNK:', text);
         console.log('CONTAINS "rating:"?', text.includes('rating:'));
         console.log('CONTAINS "text:"?', text.includes('text:'));
 
         text = text.replace(/[\r\n]+$/, '');
-        fullTextResponse += text;
 
         const { parser: newParser, updates } = parseChunk(parser, text);
         parser = newParser;
@@ -134,11 +139,12 @@ Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra co
           if (update.type === "stream") {
             console.log('Stream update: ', update);
             if (ws.readyState === ws.OPEN) {
-              fullTextResponse += update.delta;
 
               ws.send(JSON.stringify({
                 type: "stream_chunk",
                 content: update.delta,
+                requestId: message.requestId,
+                chunkIndex: chunkIndex
               }));
             }
           }
@@ -150,7 +156,7 @@ Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra co
             if (ws.readyState === ws.OPEN) {
               ws.send(JSON.stringify({
                 type: "stream_complete",
-                content: fullTextResponse,
+                content: update.data.text,
                 totalChunks: chunkIndex,
                 finish_reason: "stop",
                 requestId: message.requestId,

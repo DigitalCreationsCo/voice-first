@@ -191,6 +191,7 @@ export function Chat({
           setIsLoading(false);
 
           TTSDebugLogger.logStage(chatRequestId, 'Sending TTS request');
+          
           const ttsRequestId = clientRef.current?.sendTTSRequest(
             fullResponse, 
             0, 
