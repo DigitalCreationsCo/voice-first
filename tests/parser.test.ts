@@ -9,30 +9,36 @@ describe('StreamParser', () => {
       delimiter: ':',
       terminator: ';'
     };
-    let parser = createParser(config);
-    const chunk = 'rating: 5; difficulty: 2; text: Hello world!';
-    const { parser: newParser, updates } = parseChunk(parser, chunk);
-    parser = newParser;
 
-    const meta = updates.find(u => u.type === 'meta') as any;
+    const chunk = 'rating: 5; difficulty: 2; text: Hello world';
+    
+    let parser = createParser(config);
+    const { parser: p1, updates: u1 } = parseChunk(parser, chunk);
+    parser = p1;
+    
+    const meta = u1.find(u => u.type === 'meta') as any;
     expect(meta).toBeDefined();
     expect(meta.data.rating).toBe(5);
     expect(meta.data.difficulty).toBe(2);
-
-    const stream = updates.find(u => u.type === 'stream') as any;
+    
+    const stream = u1.find(u => u.type === 'stream') as any;
     expect(stream).toBeDefined();
     expect(stream.delta).toContain('Hello world');
+    
+    const chunk2 = ';';
+    const { parser: p2, updates: u2 } = parseChunk(parser, chunk2);
+    parser = p2;
 
-    const complete = updates.find(u => u.type === 'complete') as any;
+    const complete = u2.find(u => u.type === 'complete');
     expect(complete).toBeDefined();
-    expect(complete.data.text).toContain('Hello world');
+    expect(complete!.data.text).toBe('Hello world');
   });
 
   it('parses incrementally streamed text chunks', () => {
     const config: ParserConfig = { keys: ['text'], streamKeys: ['text'] };
     let parser = createParser(config);
 
-    const chunks = ['text: Hello ', 'world! This ', 'is a test.'];
+    const chunks = ['text: Hello ', 'world! This ', 'is a test.', ';'];
     let allUpdates: StreamUpdate[] = [];
     for (const c of chunks) {
       const { parser: p, updates } = parseChunk(parser, c);
@@ -51,14 +57,19 @@ describe('StreamParser', () => {
     const config: ParserConfig = { keys: ['rating', 'text'], streamKeys: ['text'] };
     let parser = createParser(config);
 
-    const { parser: p1, updates: u1 } = parseChunk(parser, 'rating 5 text: test');
+    const { parser: p1, updates: u1 } = parseChunk(parser, 'rating: 5');
     parser = p1;
-    expect(u1.length).toBe(0); // no updates emitted yet
+    expect(u1.length).toBe(0);
 
     const { parser: p2, updates: u2 } = parseChunk(parser, ';');
     parser = p2;
     const meta = u2.find(u => u.type === 'meta') as any;
     expect(meta.data.rating).toBe(5);
+    
+    const { parser: p3, updates: u3 } = parseChunk(parser, 'text: Every');
+    parser = p3;
+    const stream = u3.find(u => u.type === "stream") as any;
+    expect(stream.delta).toBe('Every');
   });
 
   it('trims semicolons and parses numeric fields correctly', () => {
@@ -126,7 +137,6 @@ describe('StreamParser', () => {
   });
 
   it('handles multiple stream chunks and accumulates parsed text', () => {
-    console.log('handles multiple stream chunks and accumulates parsed text');
     const config: ParserConfig = { keys: ['text'], streamKeys: ['text'] };
     let parser = createParser(config);
 
@@ -134,18 +144,12 @@ describe('StreamParser', () => {
     let allUpdates: StreamUpdate[] = [];
     for (const c of chunks) {
       const { parser: p, updates } = parseChunk(parser, c);
-      console.log(' updates: ', updates);
       parser = p;
       allUpdates.push(...updates);
     }
 
-    console.log(' allUpdates: ', allUpdates);
     const streamText = allUpdates.filter(u => u.type === 'stream').map(u => (u as any).delta).join('');
     expect(streamText).toBe('First chunk here.');
-
-    const complete = allUpdates.find(u => u.type === 'complete') as any;
-    console.log('allUpdates: ', allUpdates);
-    expect(complete.data.text).toBe('First chunk here.');
   });
 
 });

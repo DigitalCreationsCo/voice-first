@@ -299,10 +299,9 @@ export interface StreamParser {
   keyStartTime: number;
   skippedKeys: Set<string>;
   completeEmitted?: boolean;
-  lastStreamEmitted: Record<string, number>; // Track last emitted position per stream key
+  lastStreamEmitted: Record<string, number>;
 }
 
-/** Create a new parser instance */
 export function createParser(config: ParserConfig): StreamParser {
   const lastStreamEmitted: Record<string, number> = {};
   (config.streamKeys || []).forEach(k => {
@@ -357,12 +356,6 @@ function skipOptionalKey(parser: StreamParser): StreamUpdate[] {
   return [{ type: "skip", key: currentKey }];
 }
 
-/**
- * Parses all keys from the buffer and emits correct deltas and metadata.
- * Streaming keys emit the value after the delimiter (and optional whitespace) as delta,
- * only emitting the new data since the last parseChunk call.
- * Static keys parse fully between delimiter and terminator and emit to meta.
- */
 export function parseChunk(
   parser: StreamParser,
   chunk: string
@@ -382,7 +375,6 @@ export function parseChunk(
     if (isOptional) {
       if (nextKeyAppearsFirst(parser) || shouldSkipOptionalKey(parser)) {
         updates.push(...skipOptionalKey(parser));
-        // buffer may have changed after skipping; reflect latest state
         buffer = parser.buffer;
         continue;
       }
@@ -397,7 +389,12 @@ export function parseChunk(
 
     // Skip to the value: after the delimiter and any whitespace
     let valueStart = keyIdx + keyPattern.length;
-    while (buffer[valueStart] === " " || buffer[valueStart] === "\t" || buffer[valueStart] === "\r" || buffer[valueStart] === "\n") {
+    while (
+      buffer[valueStart] === " " ||
+      buffer[valueStart] === "\t" ||
+      buffer[valueStart] === "\r" ||
+      buffer[valueStart] === "\n"
+    ) {
       valueStart++;
     }
 
@@ -407,11 +404,9 @@ export function parseChunk(
       if (termIdx === -1) break; // Wait for complete
       let value = buffer.slice(valueStart, termIdx).trim();
 
-      // Only the value - don't include key/label
       parser.parsed[currentKey] = isNaN(Number(value)) ? value : Number(value);
       metaData[currentKey] = parser.parsed[currentKey];
 
-      // Advance the buffer past this value (and delimiter/terminator)
       buffer = buffer.slice(termIdx + 1).trimStart();
       parser.buffer = buffer;
       parser.currentKeyIndex++;
@@ -419,8 +414,7 @@ export function parseChunk(
       continue;
     }
 
-    // STREAMING KEY (the "tricky" case)
-    // Find the end of the value (either next key's pattern or terminator, whichever comes first)
+    // STREAMING KEY
     let nextKeyStart = -1;
     let foundNextKeyName = null;
     for (let k = parser.currentKeyIndex + 1; k < parser.config.keys.length; ++k) {
@@ -444,10 +438,9 @@ export function parseChunk(
     // Track how much we've already emitted for THIS key
     let alreadyEmitted = parser.lastStreamEmitted[currentKey] || 0;
 
-    let chunkValue = buffer.slice(valueStart, valueEnd); // This is the full value for this key so far
+    let chunkValue = buffer.slice(valueStart, valueEnd);
 
-    // Determine the portion to emit as "delta"
-    // - if the buffer is appended and we've already parsed/streamed part, only emit the new content
+    // Delta: only emit new content
     let delta = chunkValue.slice(alreadyEmitted);
 
     if (delta.length > 0) {
@@ -456,19 +449,16 @@ export function parseChunk(
       parser.lastStreamEmitted[currentKey] = alreadyEmitted + delta.length;
     }
 
-    // Decide whether to advance to next key, based on terminator or new key label appearing
+    // Decide whether to advance to next key
     let mustAdvance =
       (terminatorIdx !== -1 && valueEnd === terminatorIdx) ||
       (nextKeyStart !== -1 && valueEnd === nextKeyStart);
 
     if (mustAdvance) {
-      // Move buffer past this key (and any delimiter/terminator)
-      let nextSlice = valueEnd;
+      // Remove this key from buffer
       if (valueEnd === terminatorIdx) {
-        // Past just after the terminator
         buffer = buffer.slice(terminatorIdx + 1).trimStart();
       } else {
-        // At the beginning of next key's pattern
         buffer = buffer.slice(nextKeyStart).trimStart();
       }
       parser.buffer = buffer;
@@ -477,12 +467,12 @@ export function parseChunk(
       parser.lastStreamEmitted[currentKey] = 0;
       continue;
     } else {
-      // Partial value, wait for more buffer to appear in future chunks.
+      // Didn't encounter terminator - can't advance key, so won't emit "complete".
       break;
     }
   }
 
-  // Emit meta if we have static (non-stream) keys info for this chunk
+  // Emit meta if we parsed static key(s)
   if (!parser.metaEmitted && Object.keys(metaData).length > 0) {
     updates.push({ type: "meta", data: metaData });
     parser.metaEmitted = true;
