@@ -129,20 +129,6 @@ export function Chat({
         onStreamStart: (message) => {
           TTSDebugLogger.startSession(chatRequestId, assistantMessageId);
           TTSDebugLogger.logStage(chatRequestId, 'Chat stream started', { requestId: message.requestId });
-
-          const { rating, difficulty } = message;
-          if (!Number.isNaN(rating)) {  
-            setMessages(prev => {
-              const previousUserMessageIndex = prev.findIndex(msg => msg.role === 'user' && msg.id === userMessageId);
-              const previousUserMessage = prev[previousUserMessageIndex];
-              
-              return [
-                ...prev.slice(0, previousUserMessageIndex), 
-                { ...previousUserMessage, languageRating: rating },
-                ...prev.slice(previousUserMessageIndex + 1), 
-              ];
-            });
-          }
         },
 
         onChunk: async (requestId, textChunk, chunkIndex) => {
@@ -180,11 +166,26 @@ export function Chat({
 
         },
 
-        onComplete: (fullResponse) => {
+        onComplete: (fullResponse, message) => {
           TTSDebugLogger.logStage(chatRequestId, 'Text generation complete', {
             fullResponseLength: fullResponse.length,
             preview: fullResponse.substring(0, 100)
           });
+
+          const { parsed: { rating, difficulty }} = message;
+
+          if (!Number.isNaN(rating)) {
+            setMessages(prev => {
+              const previousUserMessageIndex = prev.findIndex(msg => msg.role === 'user' && msg.id === userMessageId);
+              const previousUserMessage = prev[previousUserMessageIndex];
+              
+              return [
+                ...prev.slice(0, previousUserMessageIndex), 
+                { ...previousUserMessage, languageRating: rating },
+                ...prev.slice(previousUserMessageIndex + 1), 
+              ];
+            });
+          }
 
           setTranscript('');
           setIsLoading(false);
