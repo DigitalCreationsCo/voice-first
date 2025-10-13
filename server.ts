@@ -3,7 +3,7 @@ import { WebSocketServer } from 'ws';
 import { ApiError, GoogleGenAI, Modality } from "@google/genai";
 import { config } from 'dotenv';
 import { AudioDebugger, AudioFormat } from './lib/audio/helpers.js';
-import { createParser, parseChunk, ParserConfig } from './lib/utils.js';
+import { createParser, parseChunk, ParserConfig } from './lib/parser.js';
 
 config({
   path: ".env.local",
@@ -49,21 +49,41 @@ async function handleChatRequest(ws: any, message: any) {
         model: "gemini-2.0-flash",
         contents: history,
         config: {
-          systemInstruction: `You are a foreign language tutor. Respond to the user in the chosen language and practice conversational speaking. Always provide a text response. If the user responds using the chosen language, provide a rating and difficulty. Format your response exactly as: "rating: <numeric_rating>; difficulty: <numeric_difficulty>; text: <your_text_response>;"
+          systemInstruction: `
+You are a foreign language tutor helping the user learn to speak the chosen language conversationally. 
+Start every conversation at a beginner level. As the user's ability improves, increase the difficulty naturally and gradually.
+
+After each user message, do three things:
+1. Correct any mistakes in the user's message (if it was written in the target language).
+2. Respond in the target language at an appropriate difficulty level.
+3. Provide key vocabulary translations and phonetic approximations for 5-10 important or challenging words from YOUR response and any corrected words from the user's message.
+
+Format your output exactly as "rating: <numeric_rating>; difficulty: <numeric_difficulty>; translations: <translation_list>; text: <your_text_response>;" (do not include explanations, comments, or extra text):
 
 Constraints:
-1. <numeric_rating> must be a number between 0 and 100 representing correctness. Can be omitted if the user does not respond in the chosen language.
-2. <numeric_difficulty> must be an number between 1 and 5 representing difficulty level.
-3. <your_text_response> is the text response for the user, and can include punctuation and multiple sentences.
-4. IMPORTANT: Use semicolons (;) to separate rating, difficulty, and text fields. The text response must end with a semicolon.
-5. Do not include extra words, quotes, or explanations outside the format.
-6. Respond in the language chosen by the user only.
+- <numeric_rating> must always be numeric (omit only if the user’s message was not in the target language).
+- <numeric_difficulty> must always be numeric between 1–5.
+- <translation_list> must be a list of translation objects with this JSON format (Use a consistent JSON structure with proper quotes and commas): {
+      "word": "<word in target language>",
+      "translation": "<meaning in English, with context if needed>",
+      "phonetic": "<simple English approximation>",
+      "audio": "<placeholder URL, to be generated server-side>"
+    }
+- <your_text_response> must be fully formed, ending naturally (not cut mid-sentence), and can include punctuation and multiple sentences.
+- Include up to 10 translation items in "translations".
+- Each "word" in "translations" must come from your latest message or a corrected user word.
+- Never include additional prose outside the format.
+- Respond in the language chosen by the user only.
+- IMPORTANT: Use semicolons (;) to separate top-level fields. The text response must end with a semicolon.
 
-Example output 1: "rating: 85; difficulty: 3; text: Bonjour! Comment allez-vous?;"
-Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra conversación. ¿Sobre qué te gustaría hablar?;"
+
+Example output 1 (if the user spoke correctly in Spanish): 'rating: 90; difficulty: 2; translations: [{"word": "hablaremos", "translation": "we will talk (future tense of hablar)", "phonetic": "ah-blah-REH-mos", "audio": "<url>"}, {"word": "comida", "translation": "food (noun)", "phonetic": "koh-MEE-dah", "audio": "<url>"}]; text: ¡Muy bien! Hoy hablaremos sobre la comida.;',
+
+Example output 2 (if the user spoke in English and needs correction): 'rating: null; difficulty: 1; translations: [{"word": "aujourd'hui", "translation": "today", "phonetic": "oh-zhoor-dwee", "audio": "<url>"}, {"word": "apprendre", "translation": "to learn", "phonetic": "ah-pron-druh", "audio": "<url>"}]; text: Bonjour! Aujourd'hui, nous allons apprendre quelques mots français;'
+}
 `,
           responseMimeType: "text/plain",
-          maxOutputTokens: 200,
+          maxOutputTokens: 350,
           candidateCount: 1
         },
       }).catch((e: ApiError) => {
@@ -74,21 +94,15 @@ Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra co
       });
 
       const terminatingChar = ';';
+      
       const streamParserConfig: ParserConfig = {
-        keys: ["rating", "difficulty", "text"],
+        keys: ["rating", "difficulty", "translations", "text"],
         streamKeys: ["text"],
-        optionalKeys: ["rating", "difficulty"],
+        optionalKeys: ["rating", "difficulty", "translations"],
+        jsonKeys: ["translations"],
         terminator: terminatingChar,
         delimiter: ':'
       };
-
-      const testResult = parseChunk(createParser(streamParserConfig), "rating: 85; difficulty: 3; text: Hello;");
-      const testResult2 = parseChunk(createParser(streamParserConfig), "text: Hello;");
-      const testResult3 = parseChunk(createParser(streamParserConfig), "text: Hello");
-      console.log('TEST PARSE:', testResult.updates);
-      console.log('TEST PARSE2:', testResult2.updates);
-      console.log('TEST PARSE3:', testResult3.updates);
-
       let parser = createParser(streamParserConfig);
 
       let chunkIndex = 0; 
@@ -129,15 +143,15 @@ Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra co
         for (const update of updates) {
 
           if (update.type === "meta") {
-            console.log(`Meta update: ${update}`);
+            console.log(`Meta update: ${JSON.stringify(update)}`);
           }
 
           if (update.type === "skip") {
-            console.log(`Skipped optional key: ${update.key}`);
+            console.log(`Skipped optional key: ${JSON.stringify(update)}`);
           }
 
           if (update.type === "stream") {
-            console.log('Stream update: ', update);
+            console.log('Stream update: ', JSON.stringify(update));
             if (ws.readyState === ws.OPEN) {
 
               ws.send(JSON.stringify({
@@ -150,9 +164,8 @@ Example output 2: "text: ¡Hola! ¿Cómo estás hoy? Estoy listo para nuestra co
           }
 
           if (update.type === "complete") {
-            console.log("  [COMPLETE]", update.data);
+            console.log("  [COMPLETE]", JSON.stringify(update));
 
-            // Send completion signal
             if (ws.readyState === ws.OPEN) {
               ws.send(JSON.stringify({
                 type: "stream_complete",
