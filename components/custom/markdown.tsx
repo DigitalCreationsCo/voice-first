@@ -1,4 +1,4 @@
-import { TranslationData } from "@/lib/utils";
+import { LanguageName, TranslationData } from "@/lib/utils";
 import Link from "next/link";
 import React, { memo, useMemo, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
@@ -27,7 +27,7 @@ const WORD_SPLIT_REGEX = /(\s+|[.,!?;:])/;
 const PUNCTUATION_REGEX = /[.,!?;:]/g;
 
 const NonMemoizedMarkdown = ({ translations, wordKey, onWordClick, children }: { 
-  translations?: TranslationData;
+  translations?: Record<string, TranslationData>;
   wordKey: string;
   onWordClick: (word: string) => void;
   children: string;

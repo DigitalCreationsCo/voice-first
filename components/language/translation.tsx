@@ -3,14 +3,14 @@ import { Volume2, VolumeX, Loader2 } from 'lucide-react';
 import { TranslationData } from '@/lib/utils';
 
 interface TranslationProps {
-  translationData: TranslationData;
+  translations: Record<string,TranslationData>;
   wordKey: string;
   selectedLanguage?: string;
   className?: string;
 }
 
 export const Translation: React.FC<TranslationProps> = ({
-  translationData,
+  translations,
   wordKey,
   selectedLanguage = 'Target Language',
   className = ''
@@ -20,7 +20,7 @@ export const Translation: React.FC<TranslationProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const wordData = useMemo(() => translationData[wordKey],[wordKey, translationData]);
+  const wordData = useMemo(() => translations[wordKey],[wordKey, translations]);
 
   if (!wordData) {
     return (

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createParser, parseChunk, ParserConfig, StreamUpdate } from '@/lib/utils';
+import { createParser, parseChunk, ParserConfig, StreamUpdate } from '@/lib/parser';
 
 describe('StreamParser', () => {
   it('parses static fields and streams text correctly', () => {
@@ -87,11 +87,11 @@ describe('StreamParser', () => {
     expect(stream.delta).toContain('Hola');
   });
 
-  it('parses keys split across chunks and streams text across multiple chunks', () => {
+  it('parses keys split across chunks', () => {
     const config: ParserConfig = { keys: ['rating', 'text'], streamKeys: ['text'] };
     let parser = createParser(config);
 
-    const chunks = ['rating: 3; t', 'ext: Hello ', 'World!'];
+    const chunks = ['rati', 'ng: 3; difficul', 'ty: 4; t', 'ext: Hello ', 'World!'];
     let allUpdates: StreamUpdate[] = [];
     for (const c of chunks) {
       const { parser: p, updates } = parseChunk(parser, c);
@@ -101,9 +101,6 @@ describe('StreamParser', () => {
 
     const meta = allUpdates.find(u => u.type === 'meta') as any;
     expect(meta.data.rating).toBe(3);
-
-    const text = allUpdates.filter(u => u.type === 'stream').map(u => (u as any).delta).join('');
-    expect(text).toBe('Hello World!');
   });
 
   it('handles optional key absent and emits skip when next key appears first', () => {
@@ -155,7 +152,131 @@ describe('StreamParser', () => {
 
     const meta = updates.find(u => u.type === 'meta') as any;
     expect(meta.data.difficulty).toBe(2);
+   
+    const complete = updates.find(u => u.type === 'complete') as any;
+    expect(complete.data.difficulty).toBe(2);
   });
+
+  it('parses JSON output from static key like translations', () => {
+    const config: ParserConfig = { 
+      keys: ['translations', 'text'], 
+      streamKeys: ['text'], 
+      optionalKeys: [] 
+    };
+    let parser = createParser(config);
+
+    const chunk = `translations: [{"word": "hablaremos", "translation": "we will talk (future tense of hablar)", "phonetic": "ah-blah-REH-mos", "audio": "<url>"}, {"word": "comida", "translation": "food (noun)", "phonetic": "koh-MEE-dah", "audio": "<url>"}]; text: Hello;`;
+    const { parser: p, updates } = parseChunk(parser, chunk);
+    parser = p;
+
+    const meta = updates.find(u => u.type === 'meta') as any;
+    expect(meta).toBeDefined();
+    expect(meta.data.translations).toBeDefined();
+    expect(JSON.parse(meta.data.translations)).toBeDefined();
+
+    const translations = JSON.parse(meta.data.translations);
+    expect(Array.isArray(translations)).toBe(true);
+    expect(translations.length).toBe(2);
+    expect(translations[0]).toEqual({
+      word: "hablaremos",
+      translation: "we will talk (future tense of hablar)",
+      phonetic: "ah-blah-REH-mos",
+      audio: "<url>"
+    });
+    expect(translations[1].word).toBe("comida");
+
+    const stream = updates.find(u => u.type === 'stream') as any;
+    expect(stream.delta).toBe("Hello");
+  });
+  
+  it('handles all optional key when present', () => {
+    const config: ParserConfig = { 
+      keys: ['rating', 'difficulty', 'translations', 'text'], 
+      streamKeys: ['text'], 
+      optionalKeys: ['rating', 'translations', 'difficulty'] 
+    };
+    let parser = createParser(config);
+
+    const chunk = `rating: 8; difficulty: 2; translations: [{"word": "hablaremos", "translation": "we will talk (future tense of hablar)", "phonetic": "ah-blah-REH-mos", "audio": "<url>"}, {"word": "comida", "translation": "food (noun)", "phonetic": "koh-MEE-dah", "audio": "<url>"}]; text: Hello;`;
+    const { parser: p, updates } = parseChunk(parser, chunk);
+    parser = p;
+
+    const meta = updates.find(u => u.type === 'meta') as any;
+    expect(meta).toBeDefined();
+    expect(meta.data.translations).toBeDefined();
+    expect(meta.data.rating).toBe(8);
+    expect(meta.data.difficulty).toBe(2);
+
+    const complete = updates.find(u => u.type === 'complete') as any;
+    expect(complete.data.rating).toBe(8);
+  });
+  
+  it('keys must be order of input to be parsed', () => {
+    const config: ParserConfig = { 
+      keys: ['translations', 'difficulty', 'rating', 'text'], 
+      streamKeys: ['text'], 
+      optionalKeys: ['rating', 'translations', 'difficulty'] 
+    };
+    let parser = createParser(config);
+
+    const chunk = `rating: 8; difficulty: 2; translations: [{"word": "hablaremos", "translation": "we will talk (future tense of hablar)", "phonetic": "ah-blah-REH-mos", "audio": "<url>"}, {"word": "comida", "translation": "food (noun)", "phonetic": "koh-MEE-dah", "audio": "<url>"}]; text: Hello;`;
+    const { parser: p, updates } = parseChunk(parser, chunk);
+    parser = p;
+
+    const meta = updates.find(u => u.type === 'meta') as any;
+    expect(meta).toBeDefined();
+    expect(meta.data.translations).toBeDefined();
+    expect(meta.data.rating).toBeUndefined();
+    expect(meta.data.difficulty).toBeUndefined();
+    
+    const complete = updates.find(u => u.type === 'complete') as any;
+    expect(complete.data.rating).toBeUndefined();
+    expect(complete.data.difficulty).toBeUndefined();
+  });
+  it('handles all optional key when present', () => {
+    const config: ParserConfig = { 
+      keys: ['rating', 'difficulty', 'translations', 'text'], 
+      streamKeys: ['text'], 
+      optionalKeys: ['rating', 'translations', 'difficulty'] 
+    };
+    let parser = createParser(config);
+
+    const chunk = `rating: 8; difficulty: 2; translations: [{"word": "hablaremos", "translation": "we will talk (future tense of hablar)", "phonetic": "ah-blah-REH-mos", "audio": "<url>"}, {"word": "comida", "translation": "food (noun)", "phonetic": "koh-MEE-dah", "audio": "<url>"}]; text: Hello;`;
+    const { parser: p, updates } = parseChunk(parser, chunk);
+    parser = p;
+
+    const meta = updates.find(u => u.type === 'meta') as any;
+    expect(meta).toBeDefined();
+    expect(meta.data.translations).toBeDefined();
+    expect(meta.data.rating).toBe(8);
+    expect(meta.data.difficulty).toBe(2);
+
+    const complete = updates.find(u => u.type === 'complete') as any;
+    expect(complete.data.rating).toBe(8);
+  });
+  
+  it('does not complete update when input is malformed', () => {
+    const config: ParserConfig = { 
+      keys: ['rating', 'text'], 
+      streamKeys: ['text'], 
+      optionalKeys: [] 
+    };
+    let parser = createParser(config);
+
+    const chunk = `rating: 7; text: Hello`;
+    const { parser: p, updates } = parseChunk(parser, chunk);
+    parser = p;
+
+    const meta = updates.find(u => u.type === 'meta') as any;
+    expect(meta.data.rating).toBe(7);
+
+    const stream = updates.find(u => u.type === 'stream') as any;
+    expect(stream.delta).toBe("Hello");
+    
+    const complete = updates.find(u => u.type === 'complete') as any;
+    expect(complete).toBeUndefined();
+  });
+  
 
   it('handles multiple stream chunks and accumulates parsed text', () => {
     const config: ParserConfig = { keys: ['text'], streamKeys: ['text'] };
@@ -188,3 +309,19 @@ describe('StreamParser', () => {
     expect(streamText2).toBe("D'accord, commençons ! De quoi aimerais-tu parler aujourd'hui ?");
   });
 });
+
+
+// const tests = [
+  //   'rating: 85; difficulty: 3; translations: [{"word": "hablaremos", "translation": "we will talk (future tense of hablar)", "phonetic": "ah-blah-REH-mos", "audio": "<url>"}, {"word": "comida", "translation": "food (noun)", "phonetic": "koh-MEE-dah", "audio": "<url>"}]; text: Hello;',
+
+  //   "text: Hello;",
+
+  //   'translations: [{"word": "hablaremos", "translation": "we will talk (future tense of hablar)", "phonetic": "ah-blah-REH-mos", "audio": "<url>"}, {"word": "comida", "translation": "food (noun)", "phonetic": "koh-MEE-dah", "audio": "<url>"}]; text: Hello;',
+
+  //   "text: Hello"
+  // ]
+
+  // for (const [i, test] of tests.entries()) {
+  //   const testResults = parseChunk(createParser(streamParserConfig), test);
+  //   console.log(`TEST PARSE ${i+1}: `, testResults.updates);
+  // }

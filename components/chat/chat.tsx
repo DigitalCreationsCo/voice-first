@@ -9,7 +9,7 @@ import React, {
   useCallback,
 } from "react";
 import { toast } from "sonner";
-import { buildUIMessage, generateMessageId, getWebSocketUrl, UIMessage } from "@/lib/utils";
+import { buildUIMessage, generateMessageId, getWebSocketUrl, TranslationData, UIMessage } from "@/lib/utils";
 import { useAudioManager } from "@/hooks/use-audio-manager";
 import { ChatWebSocketClient } from "@/lib/socket";
 import { Message } from "./message";
@@ -172,7 +172,11 @@ export function Chat({
             preview: fullResponse.substring(0, 100)
           });
 
-          const { parsed: { rating, difficulty }} = message;
+          let { parsed: { rating, difficulty, translations }} = message;
+
+          if (translations && Object.keys(translations).length) {
+            translations = JSON.parse(translations) as TranslationData ;
+          }
 
           if (!Number.isNaN(rating)) {
             setMessages(prev => {
@@ -207,7 +211,7 @@ export function Chat({
             if (assistantMessage) {
               return [
                 ...prev.slice(0, assistantMessageIndex), 
-                { ...assistantMessage, content: fullResponse },
+                { ...assistantMessage, content: fullResponse, translations },
                 ...prev.slice(assistantMessageIndex + 1), 
               ];
             }

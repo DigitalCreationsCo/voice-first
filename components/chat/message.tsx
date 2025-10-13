@@ -110,7 +110,7 @@ export const Message = ({
 
         {message.role === "assistant" && message.translations && wordKey && (
           <Translation
-            translationData={message.translations}
+            translations={message.translations}
             wordKey={wordKey}
             selectedLanguage={"German"}
             />
