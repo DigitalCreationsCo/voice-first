@@ -230,14 +230,19 @@ export function buildUIMessage(props: CreateUIMessage):UIMessage {
 };
 
 export interface TranslationData {
-  [key: string]: {
-    word: string;
-    language: string;
-    english: string;
-    phonetic: string;
-    audioUrl?: string;
-  };
+  word: string;
+  language: string;
+  english: string;
+  phonetic: string;
+  audioUrl?: string;
+  addedAt?: number;
+  usageCount?: number;
 };
+
+export type LanguageName = 'german' | 'french' | 'spanish' | 'italian' | 'portuguese' | 'japanese';
+export interface TranslationsByLanguage {
+  [language: string]: Record<string, TranslationData>;
+}
 
 export function getTitleFromChat(chat: Chat) {
   const messages = convertToUIMessages(chat.messages as Array<CoreMessage>);

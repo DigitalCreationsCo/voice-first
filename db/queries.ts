@@ -13,7 +13,7 @@ import { generateUUID } from "@/lib/utils";
 // https://authjs.dev/reference/adapter/drizzle
 let client = postgres(`${process.env.POSTGRES_URL!}?sslmode=require`, { prepare: false });
 
-let db = drizzle(client);
+export const db = drizzle(client);
 
 export async function getUser(email: string): Promise<User | undefined> {
   try {
