@@ -4,21 +4,40 @@ import { motion } from "framer-motion";
 import { BotIcon, UserIcon } from "../custom/icons";
 import { Markdown } from "../custom/markdown";
 import { PreviewAttachment } from "./preview-attachment";
-import { PlayIcon, Square, StarIcon, Volume2Icon } from "lucide-react";
+import { PlayIcon, StarIcon, Volume2Icon } from "lucide-react";
 import { Button } from "../ui/button";
-import { TranslationData, UIMessage } from "@/lib/utils";
+import { UIMessage } from "@/lib/utils";
 import Translation from "../language/translation";
-import { useState } from "react";
-// import { Weather } from "../custom/weather";
-// import { AuthorizePayment } from "../flights/authorize-payment";
-// import { DisplayBoardingPass } from "../flights/boarding-pass";
-// import { CreateReservation } from "../flights/create-reservation";
-// import { FlightStatus } from "../flights/flight-status";
-// import { ListFlights } from "../flights/list-flights";
-// import { SelectSeats } from "../flights/select-seats";
-// import { VerifyPayment } from "../flights/verify-payment";
+import { useState, memo, useCallback } from "react";
 
-export const Message = ({
+// Memoized attachment preview list for performance
+const MemoizedPreviewAttachmentList = memo(function MemoizedPreviewAttachmentList({
+  attachments,
+}: {
+  attachments: Array<any>;
+}) {
+  return (
+    <div className="flex flex-row gap-2 mt-2">
+      {attachments.map((attachment) => (
+        <PreviewAttachment key={attachment.url} attachment={attachment} />
+      ))}
+    </div>
+  );
+});
+
+const MemoizedTranslation = memo(Translation);
+
+interface MessageComponentProps {
+  chatId: string;
+  message: UIMessage;
+  toolInvocations?: Array<any>;
+  attachments?: Array<any>;
+  isPlayAudioDisabled: boolean;
+  onPlayAudio: () => void;
+  isCurrentlyPlaying: boolean;
+}
+
+const MessageComponent: React.FC<MessageComponentProps> = ({
   chatId,
   message,
   toolInvocations,
@@ -26,19 +45,42 @@ export const Message = ({
   isPlayAudioDisabled,
   onPlayAudio,
   isCurrentlyPlaying,
-}: {
-  chatId: string;
-  message: UIMessage;
-  toolInvocations?: Array<any> | undefined;
-  attachments?: Array<any>;
-  isPlayAudioDisabled: boolean;
-  onPlayAudio: () => void;
-  isCurrentlyPlaying: boolean;
 }) => {
-  const [wordKey, setWordKey] = useState('');
+  const [selectedWord, setSelectedWord] = useState<string>("");
 
-  const handleWordClick = (word: string) => {
-    setWordKey(word);
+  // Helper: get current scroll Y
+  const getScrollY = () => {
+    if (typeof window !== "undefined") return window.scrollY;
+    return 0;
+  };
+  // Helper: set scroll Y
+  const setScrollY = (y: number) => {
+    if (typeof window !== "undefined") window.scrollTo({ top: y });
+  };
+
+  // Wrap click to prevent scroll/anchor focus jump on span/buttons
+  const handleWordClick = useCallback(
+    (word: string, e?: React.MouseEvent) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const y = getScrollY();
+        setSelectedWord(word);
+        setTimeout(() => setScrollY(y), 0);
+      } else {
+        setSelectedWord(word);
+      }
+    },
+    []
+  );
+
+  // Prevent scroll jumping for play audio button and icon wrappers
+  const handlePlayAudioClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const y = getScrollY();
+    onPlayAudio();
+    setTimeout(() => setScrollY(y), 0);
   };
 
   return (
@@ -49,75 +91,115 @@ export const Message = ({
     >
       <div
         className={`inline-flex flex-col items-start min-w-[120px] max-w-2xl w-fit relative p-3 rounded-lg leading-relaxed
-          ${message.role === 'user'
-            ? 'bg-blue-500 text-white ml-auto self-end'
-            : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 self-start'
+          ${message.role === "user"
+            ? "bg-blue-500 text-white ml-auto self-end"
+            : "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 self-start w-full"
           }`}
       >
-        <div className={`flex flex-col w-full items-start whitespace-pre-line
-          ${message.role === 'assistant'
-            ? 'self-start'
-            : 'self-end'
-          }`}>
+        <div
+          className={`flex flex-col w-full items-start whitespace-pre-line
+          ${message.role === "assistant"
+            ? "self-start"
+            : "self-end"
+          }`}
+        >
           <span
-            className={`flex-shrink-0 w-5 h-5 border-[1.6px] rounded-sm p-0.5 mr-2 overflow-clip
-              ${message.role === 'assistant'
-                ? 'self-start text-zinc-500 border-zinc-500'
-                : 'self-end ml-2 text-zinc-300 border-zinc-300'
+            className={`flex-shrink-0 w-5 h-5 border-[1.6px] rounded-sm p-0.5 overflow-clip
+              ${message.role === "assistant"
+                ? "self-start text-zinc-500 border-zinc-500"
+                : "self-end ml-2 text-zinc-300 border-zinc-300"
               }`}
           >
-            {message.role === 'assistant' ? <BotIcon /> : <UserIcon />}
+            {message.role === "assistant" ? <BotIcon /> : <UserIcon />}
           </span>
-        <Markdown
-          wordKey={wordKey}
-          translations={message.translations}
-          onWordClick={handleWordClick}
-        >
-          {message.content}
-        </Markdown>
+          <Markdown
+            selectedWord={selectedWord}
+            translations={message.translations}
+            onWordClick={(word: string, e?: React.MouseEvent) =>
+              handleWordClick(word, e)
+            }
+          >
+            {message.content}
+          </Markdown>
         </div>
 
-        {message.role === 'assistant' && message.audioData && (
+        {message.role === "assistant" && message.audioData && (
           <div className="flex justify-end items-center gap-2 mt-2">
             <Button
               size="sm"
               variant="outline"
-              onClick={onPlayAudio}
+              onClick={handlePlayAudioClick}
               disabled={isPlayAudioDisabled}
               className="text-xs"
+              tabIndex={0}
+              type="button"
             >
-              {isCurrentlyPlaying ? <Volume2Icon size={14} /> : <PlayIcon size={14} />}
+              {isCurrentlyPlaying ? (
+                <Volume2Icon size={14} />
+              ) : (
+                <PlayIcon size={14} />
+              )}
             </Button>
           </div>
         )}
-        
-        {message.languageRating && (
+
+        {Number(message.languageRating) ? (
           <div className="flex self-end items-center gap-1">
             <StarIcon className="fill-yellow-500" size={12} />
-            <p className='text-sm'>
-              {message.languageRating}
-            </p>
+            <p className="text-sm">{message.languageRating}</p>
           </div>
-        )}
+        ) : null}
 
         {attachments && (
-          <div className="flex flex-row gap-2 mt-2">
-            {attachments.map((attachment) => (
-              <PreviewAttachment key={attachment.url} attachment={attachment} />
-            ))}
-          </div>
+          <MemoizedPreviewAttachmentList attachments={attachments} />
         )}
 
-        {message.role === "assistant" && message.translations && wordKey && (
-          <Translation
-            translations={message.translations}
-            wordKey={wordKey}
-            selectedLanguage={"German"}
+        {message.role === "assistant" &&
+          message.translations &&
+          selectedWord && (
+            <MemoizedTranslation
+              translations={message.translations}
+              selectedWord={selectedWord}
+              selectedLanguage={"German"}
             />
-        )}
-        
+          )}
       </div>
     </motion.div>
   );
 };
 
+interface MemoizedMessageProps {
+  chatId: string;
+  message: UIMessage;
+  isPlayAudioDisabled: boolean;
+  onPlayAudio: () => void;
+  isCurrentlyPlaying: boolean;
+  onInteractive?: (e?: React.SyntheticEvent | Event) => void;
+}
+
+export const Message = memo(
+  function MemoizedMessage({
+    chatId,
+    message,
+    isPlayAudioDisabled,
+    onPlayAudio,
+    isCurrentlyPlaying,
+    onInteractive,
+  }: MemoizedMessageProps) {
+    // You may want to pass onInteractive to subcomponents for user click handling
+    return (
+      <MessageComponent
+        chatId={chatId}
+        message={message}
+        isPlayAudioDisabled={isPlayAudioDisabled}
+        onPlayAudio={onPlayAudio}
+        isCurrentlyPlaying={isCurrentlyPlaying}
+        // toolInvocations, attachments, etc, can be added as needed
+      />
+    );
+  },
+  (prevProps, nextProps) =>
+    prevProps.message === nextProps.message &&
+    prevProps.isPlayAudioDisabled === nextProps.isPlayAudioDisabled &&
+    prevProps.isCurrentlyPlaying === nextProps.isCurrentlyPlaying
+);

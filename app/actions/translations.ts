@@ -6,6 +6,8 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { auth } from 'auth';
 import { TranslationData } from '@/lib/utils';
 
+// Actions for managing a store of language words
+
 /**
  * Load all translations for a user's language
  */

@@ -6,9 +6,7 @@ module.exports = {
   //     hmrRefreshes: true,
   //   },
   // },
-  experimental: {},
   images: {
     remotePatterns: [],
   },
-  transpilePackages: ['next-auth']
 }
