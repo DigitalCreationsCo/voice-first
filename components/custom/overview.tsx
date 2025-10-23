@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import Link from "next/link";
 
-import { LogoGoogle, MessageIcon, VercelIcon } from "./icons";
+import { BotIcon, LogoGoogle, MessageIcon, VercelIcon } from "./icons";
 
 export const Overview = ({ launchConversation }: {
   launchConversation: (args: any) => void;
@@ -16,12 +16,15 @@ export const Overview = ({ launchConversation }: {
       transition={{ delay: 0.5 }}
     >
       <div className="border-none bg-muted/50 rounded-2xl p-6 flex flex-col gap-4 text-zinc-500 text-sm dark:text-zinc-400 dark:border-zinc-700">
-        <p className="flex flex-row justify-center gap-4 items-center text-zinc-900 dark:text-zinc-50 text-lg">
+        <p className="flex flex-row justify-center gap-2 items-center text-lg">
+          <span className="w-5 h-5 border-[1.6px] rounded-sm p-0.5 overflow-clip border-zinc-500 dark:border-zinc-400">
+            <BotIcon />
+          </span>
           <MessageIcon size={20} /> Say Hi to Chatter
         </p>
         <p className="whitespace-pre-wrap">
-          {`Chatter is a voice-first app for learning to speak languages. 
-Select a language to start conversating.`}
+          {`Chatter is a voice-first assistant for learning languages. 
+Talk or type to start a conversation.`}
         </p>
         <div>
           <div>

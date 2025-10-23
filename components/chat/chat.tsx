@@ -435,6 +435,8 @@ export function Chat({
           dispatch({ type: 'setError', payload: errorMsg });
           dispatch({ type: 'setIsLoading', payload: false });
           setTranscript('');
+
+          toast.error(errorMsg);
         }
       });
     } catch (err: any) {
@@ -460,7 +462,7 @@ export function Chat({
   const launchLanguageConversation = useCallback((language: string) => {
     try {
       const assistantMessageId = generateMessageId();
-      const content = "Hi! What would you like to discuss in " + language + "?";
+      const content = "Hi, I'm Chatter! What would you like to discuss in " + language + "?";
 
       const firstAssistantMessage = buildUIMessage({
         id: assistantMessageId,
@@ -630,7 +632,7 @@ export function Chat({
 
   return (
     <div className="flex flex-row justify-center pb-4 md:pb-8 h-dvh bg-background">
-      <div className="shrink-0 flex-col justify-between items-center gap-4">
+      <div className="flex flex-col justify-between items-center gap-4">
         <div
           ref={messagesContainerRef}
           className="flex flex-col gap-4 h-full w-dvw items-center overflow-y-scroll"
@@ -660,9 +662,6 @@ export function Chat({
         <form className="flex flex-row gap-2 relative items-end w-full md:max-w-[500px] max-w-[calc(100dvw-32px)] px-4 md:px-0">
           {renderedInput}
         </form>
-        <div className="bg-primary min-h-[2000px] w-full">
-          hello
-        </div>
       </div>
     </div>
   );
