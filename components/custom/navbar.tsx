@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { auth, signOut } from "@/auth"
 import { History } from "@/components/chat/history";
-import { MessageIcon, SlashIcon } from "./icons";
+import { BotIcon, MessageIcon, SlashIcon } from "./icons";
 import { ThemeToggle } from "./theme-toggle";
 import { Button } from "../ui/button";
 import {
@@ -20,9 +20,14 @@ export default async function Navbar() {
       <div className="bg-background absolute top-0 left-0 w-dvw py-2 px-3 justify-between flex flex-row items-center z-30">
         <div className="flex flex-row gap-3 items-center">
           <History user={session?.user} />
-          <div className="flex flex-row gap-4 items-center text-lg text-zinc-900 dark:text-zinc-50 ml-3">
-            <MessageIcon size={20} />
-            <h1 className="text-zinc-900 dark:text-zinc-50 text-lg">Chatter</h1>
+          <div className="flex flex-row gap-4 items-center text-lg ml-3">
+            <p className="flex flex-row justify-center gap-2 items-center text-lg border-zinc-500 text-zinc-500 dark:text-zinc-400 dark:border-zinc-400">
+              {/* <span className="w-5 h-5 border-[1.6px] rounded-sm p-0.5 overflow-clip border-zinc-500 text-zinc-500 dark:text-zinc-400 dark:border-zinc-400">
+                <BotIcon />
+              </span> */}
+              <MessageIcon size={20} />
+            </p>
+            <h1 className="text-zinc-500 dark:text-zinc-400 text-lg">Chatter</h1>
           </div>
         </div>
 

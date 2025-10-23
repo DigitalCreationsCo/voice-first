@@ -1,10 +1,10 @@
-export const BotIcon = () => {
+export const BotIcon = ({height = 16, width = 16}: any) => {
   return (
     <svg
-      height="16"
+      height={height}
       strokeLinejoin="round"
       viewBox="0 0 16 16"
-      width="16"
+      width={width}
       style={{ color: "currentcolor" }}
     >
       <path

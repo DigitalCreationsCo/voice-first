@@ -160,7 +160,7 @@ const MessageComponent: React.FC<MessageComponentProps> = ({
             <MemoizedTranslation
               translations={message.translations}
               selectedWord={selectedWord}
-              selectedLanguage={"German"}
+              selectedLanguage={Object.values(message.translations)?.[0]?.language ?? undefined}
             />
           )}
       </div>
