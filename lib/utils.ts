@@ -232,7 +232,7 @@ export function buildUIMessage(props: CreateUIMessage):UIMessage {
 export interface TranslationData {
   word: string;
   language: string;
-  english: string;
+  translation: string;
   phonetic: string;
   audioUrl?: string;
   addedAt?: number;

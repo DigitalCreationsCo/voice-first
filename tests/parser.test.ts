@@ -88,7 +88,7 @@ describe('StreamParser', () => {
   });
 
   it('parses keys split across chunks', () => {
-    const config: ParserConfig = { keys: ['rating', 'text'], streamKeys: ['text'] };
+    const config: ParserConfig = { keys: ['rating', 'difficulty', 'text'], streamKeys: ['text'] };
     let parser = createParser(config);
 
     const chunks = ['rati', 'ng: 3; difficul', 'ty: 4; t', 'ext: Hello ', 'World!'];
@@ -101,7 +101,238 @@ describe('StreamParser', () => {
 
     const meta = allUpdates.find(u => u.type === 'meta') as any;
     expect(meta.data.rating).toBe(3);
+    expect(meta.data.difficulty).toBe(4);
   });
+
+  it('parses keys split across chunks 2', () => {
+    const config: ParserConfig = {
+      keys: ['rating', 'difficulty', 'translations', 'text'],
+      streamKeys: ['text'],
+      jsonKeys: ['translations']
+    };
+    let parser = createParser(config);
+
+    const chunks = ['rating', ': null;', 'difficulty: 1; translations: [{"word": "Hallo", "translation":', '"Hello", "phonetic": "HAH-loh", "audio": "<', 'url>"}, {"word": "Thema", "translation": "topic", "phonetic": "TEH-mah", "audio": "<url>"}', '{"word": "interessiert", "translation": "interested", "phonetic": "in-teh-REH-stee-rt", "audio":', '"<url>"}]; text: Hallo! Schön, dich zu sehen. Bist du bereit für unsere heutige Lektion?;'];
+    let allUpdates: StreamUpdate[] = [];
+    for (const c of chunks) {
+      const { parser: p, updates } = parseChunk(parser, c);
+      parser = p;
+      allUpdates.push(...updates);
+    }
+
+    const meta = allUpdates.find(u => u.type === 'meta') as any;
+    expect(meta.data.rating).toBe("null");
+    expect(meta.data.difficulty).toBe(1);
+    expect(meta.data.translations).toBeDefined();
+  });
+ 
+  it('parses jsonKeys when optionalKeys is omitted and when present', () => {
+    const terminatingChar = ';';
+  // Config WITH translations as optional
+  const configWithOptional: ParserConfig = {
+    keys: ["rating", "difficulty", "translations", "text"],
+    streamKeys: ["text"],
+    optionalKeys: ["rating", "difficulty", "translations"],
+    jsonKeys: ["translations"],
+    terminator: terminatingChar,
+    delimiter: ':'
+  };
+  // Config WITHOUT optionalKeys
+  const configWithoutOptional: ParserConfig = {
+    keys: ["rating", "difficulty", "translations", "text"],
+    streamKeys: ["text"],
+    jsonKeys: ["translations"],
+    terminator: terminatingChar,
+    delimiter: ':'
+  };
+
+  const chunks = [
+    'rating:null;', 'difficulty:1;',
+    'translations: [{"word": "Hallo", "translation": "Hello", "phonetic": "HAH-loh", "audio": "<url>"}, {"word": "Thema", "translation": "topic", "phonetic": "TEH-mah", "audio": "<url>"}, {"word": "interessiert", "translation": "interested", "phonetic": "in-teh-REH-stee-rt", "audio": "<url>"}]; text: Hallo! Schön, dich zu sehen. Bist du bereit für unsere heutige Lektion?;'
+  ];
+
+  // Run parser with optionalKeys
+  let parserOptional = createParser(configWithOptional);
+  let allUpdatesOptional: StreamUpdate[] = [];
+  for (const c of chunks) {
+    const { parser: p, updates } = parseChunk(parserOptional, c);
+    parserOptional = p;
+    allUpdatesOptional.push(...updates);
+  }
+
+  const metaOptional = allUpdatesOptional.find(u => u.type === 'meta') as any;
+  const streamOptional = allUpdatesOptional.find(u => u.type === 'stream') as any;
+
+  // translations should be defined (not skipped) as present
+  expect(metaOptional.data.rating).toBe("null");
+  expect(metaOptional.data.difficulty).toBe(1);
+  expect(metaOptional.data.translations).toBeDefined();
+  expect(streamOptional.delta).toBe('Hallo! Schön, dich zu sehen. Bist du bereit für unsere heutige Lektion?');
+
+  // Now test with NO optionalKeys defined (translations should also be parsed)
+  let parserNoOptional = createParser(configWithoutOptional);
+  let allUpdatesNoOptional: StreamUpdate[] = [];
+  for (const c of chunks) {
+    const { parser: p, updates } = parseChunk(parserNoOptional, c);
+    parserNoOptional = p;
+    allUpdatesNoOptional.push(...updates);
+  }
+
+  const metaNoOptional = allUpdatesNoOptional.find(u => u.type === 'meta') as any;
+  const streamNoOptional = allUpdatesNoOptional.find(u => u.type === 'stream') as any;
+
+  // Should still parse translations
+  expect(metaNoOptional.data.translations).toBeDefined();
+  expect(streamNoOptional.delta).toBe('Hallo! Schön, dich zu sehen. Bist du bereit für unsere heutige Lektion?');
+});
+
+  it('parses jsonKey when jsonKey is optional', () => {
+    const terminatingChar = ';';
+  // Config WITH translations as optional
+  const configWithOptional: ParserConfig = {
+    keys: ["rating", "difficulty", "translations", "text"],
+    streamKeys: ["text"],
+    optionalKeys: ["rating", "difficulty", "translations"],
+    jsonKeys: ["translations"],
+    terminator: terminatingChar,
+    delimiter: ':'
+  };
+
+  const chunks = [
+    'rating',':null;','difficulty:1;',
+    'translations: [{"word": "Hallo", "translation": "Hello", "phonetic": "HAH-loh", "audio": "<url>"}, {"word": "Thema", "translation": "topic", "phonetic": "TEH-mah", "audio": "<url>"}, {"word": "interessiert", "translation": "interested", "phonetic": "in-teh-REH-stee-rt", "audio": "<url>"}]; text: Hallo! Schön, dich zu sehen. Bist du bereit für unsere heutige Lektion?;'
+  ];
+
+  // Run parser with optionalKeys
+  let parserOptional = createParser(configWithOptional);
+  let allUpdatesOptional: StreamUpdate[] = [];
+  for (const c of chunks) {
+    const { parser: p, updates } = parseChunk(parserOptional, c);
+    parserOptional = p;
+    allUpdatesOptional.push(...updates);
+  }
+
+  const metaOptional = allUpdatesOptional.find(u => u.type === 'meta') as any;
+  const streamOptional = allUpdatesOptional.find(u => u.type === 'stream') as any;
+
+  // translations should be defined (not skipped) as present
+  expect(metaOptional.data.rating).toBe("null");
+  expect(metaOptional.data.difficulty).toBe(1);
+  expect(metaOptional.data.translations).toBeDefined();
+  expect(streamOptional.delta).toBe('Hallo! Schön, dich zu sehen. Bist du bereit für unsere heutige Lektion?');
+});
+  
+it('parses jsonKeys across split chunks when jsonKey is optional', () => {
+    const terminatingChar = ';';
+  // Config WITH translations as optional
+  const configWithOptional: ParserConfig = {
+    keys: ["rating", "difficulty", "translations", "text"],
+    streamKeys: ["text"],
+    optionalKeys: ["rating", "difficulty", "translations"],
+    jsonKeys: ["translations"],
+    terminator: terminatingChar,
+    delimiter: ':'
+  };
+
+  const chunks = [
+    'rating',':null;','difficulty:1;translations:',
+    '[{"word": "Hallo", "translation": "Hello", "phonetic": "HAH-loh", "audio": "<url>"}, {"word": "Thema", "translation": "topic", "phonetic": "TEH-mah", "audio": "<url>"}, {"word": "interessiert", "translation": "interested", "phonetic": "in-teh-REH-stee-rt", "audio": "<url>"}]; text: Hallo! Schön, dich zu sehen. Bist du bereit für unsere heutige Lektion?;'
+  ];
+
+  // Run parser with optionalKeys
+  let parserOptional = createParser(configWithOptional);
+  let allUpdatesOptional: StreamUpdate[] = [];
+  for (const c of chunks) {
+    const { parser: p, updates } = parseChunk(parserOptional, c);
+    parserOptional = p;
+    allUpdatesOptional.push(...updates);
+  }
+
+  const metaOptional = allUpdatesOptional.find(u => u.type === 'meta') as any;
+  const streamOptional = allUpdatesOptional.find(u => u.type === 'stream') as any;
+
+  // translations should be defined (not skipped) as present
+  expect(metaOptional.data.rating).toBe("null");
+  expect(metaOptional.data.difficulty).toBe(1);
+  expect(metaOptional.data.translations).toBeDefined();
+  expect(streamOptional.delta).toBe('Hallo! Schön, dich zu sehen. Bist du bereit für unsere heutige Lektion?');
+});
+
+it('parses jsonKeys across split chunks when jsonKey is optional #2', () => {
+    const terminatingChar = ';';
+  // Config WITH translations as optional
+  const configWithOptional: ParserConfig = {
+    keys: ["rating", "difficulty", "translations", "text"],
+    streamKeys: ["text"],
+    optionalKeys: ["rating", "difficulty", "translations"],
+    jsonKeys: ["translations"],
+    terminator: terminatingChar,
+    delimiter: ':'
+  };
+
+  const chunks = [
+    'rating',
+    ': null;',
+    ' difficulty: 1; translations: [{"word": "Hallo", "translation":',
+    ' "Hello", "phonetic": "hah-loh", "audio": "<url>"},',
+    ' {"word": "Sprechen", "translation": "to speak", "phonetic": "shpreh-ken", "audio": "<url>"}, {"word',
+    '": "wir", "translation": "we", "phonetic": "veer", "audio": "<url>"}, {"word": "Deutsch", "translation":',
+    ' "German", "phonetic": "doytch", "audio": "<url>"}]; text: Hallo! Ja, wir sprechen Deutsch miteinander.;'
+  ];
+
+  // Run parser with optionalKeys
+  let parserOptional = createParser(configWithOptional);
+  let allUpdatesOptional: StreamUpdate[] = [];
+  for (const c of chunks) {
+    const { parser: p, updates } = parseChunk(parserOptional, c);
+    parserOptional = p;
+    allUpdatesOptional.push(...updates);
+  }
+
+  const metaOptional = allUpdatesOptional.find(u => u.type === 'meta') as any;
+  const streamOptional = allUpdatesOptional.find(u => u.type === 'stream') as any;
+
+  // translations should be defined (not skipped) as present
+  expect(metaOptional.data.rating).toBe("null");
+  expect(metaOptional.data.difficulty).toBe(1);
+  console.log(metaOptional.data.translations);
+  expect(metaOptional.data.translations).toBeDefined();
+  expect(streamOptional.delta).toBe('Hallo! Ja, wir sprechen Deutsch miteinander.');
+});
+
+it('jsonKeys retain their data structure', () => {
+  // Config WITH translations as optional
+  const configWithOptional: ParserConfig = {
+    keys: ["rating", "difficulty", "translations", "text"],
+    streamKeys: ["text"],
+    optionalKeys: ["rating", "difficulty", "translations"],
+    jsonKeys: ["translations"],
+    terminator: ';',
+    delimiter: ':'
+  };
+
+  const chunks = [
+    'rating',
+    ': null;',
+    ' difficulty: 1; translations: [{"word": "Hallo", "translation":',
+    ' "Hello", "phonetic": "hah-loh", "audio": "<url>"},',
+    ' {"word": "Sprechen", "translation": "to speak", "phonetic": "shpreh-ken", "audio": "<url>"}, {"word',
+    '": "wir", "translation": "we", "phonetic": "veer", "audio": "<url>"}, {"word": "Deutsch", "translation":',
+    ' "German", "phonetic": "doytch", "audio": "<url>"}]; text: Hallo! Ja, wir sprechen Deutsch miteinander.;'
+  ];
+
+  // Run parser with optionalKeys
+  let parserOptional = createParser(configWithOptional);
+  let allUpdatesOptional: StreamUpdate[] = [];
+  for (const c of chunks) {
+    const { parser: p, updates } = parseChunk(parserOptional, c);
+    parserOptional = p;
+    allUpdatesOptional.push(...updates);
+  }
+
+  const metaOptional = allUpdatesOptional.find(u => u.type === 'meta') as any;
+  expect(Array.isArray(metaOptional.data.translations)).toBeTruthy();
+});
 
   it('handles optional key absent and emits skip when next key appears first', () => {
     const config: ParserConfig = { keys: ['rating', 'difficulty', 'text'], streamKeys: ['text'], optionalKeys: ['difficulty'] };
@@ -233,6 +464,7 @@ describe('StreamParser', () => {
     expect(complete.data.rating).toBeUndefined();
     expect(complete.data.difficulty).toBeUndefined();
   });
+
   it('handles all optional key when present', () => {
     const config: ParserConfig = { 
       keys: ['rating', 'difficulty', 'translations', 'text'], 

@@ -8,7 +8,11 @@ export type ParserConfig = {
   timeout?: number;
 };
 
-export type ParsedData = Record<string, string | number | Record<string, any> | undefined>;
+// Strict definition: JSON keys can be string/number/object/array/undefined
+export type ParsedData = Record<
+  string,
+  string | number | Record<string, any> | any[] | undefined
+>;
 
 export type StreamUpdate =
   | { type: "meta"; data: ParsedData }
@@ -53,8 +57,8 @@ function isOptionalKey(key: string, config: ParserConfig) {
 }
 
 function isJsonKey(key: string, config: ParserConfig) {
-    return config.jsonKeys?.includes(key) ?? false;
-  }
+  return config.jsonKeys?.includes(key) ?? false;
+}
 
 /**
  * Parse a chunk of incoming text.
@@ -69,55 +73,52 @@ export function parseChunk(
 
   const { keys, streamKeys, delimiter, terminator } = parser.config;
 
-  // Helper: skip the current optional key only when we have strong evidence it's absent
-  // Criteria to skip:
-  //  - The full key pattern (key + delimiter) is NOT in the buffer, AND
-  //  - A subsequent key's full pattern IS present in the buffer (proves progression), AND
-  //  - The buffer does NOT end with a partial prefix of the current key pattern (chunk-boundary guard)
+  const d = delimiter || ":";
+  const t = terminator || ";";
+
+  // Helper functions
+  function findKeyPatternInBuffer(key: string, buf: string): number {
+    return buf.indexOf(key + d);
+  }
+
+  function hasPartialPrefixAtEnd(pattern: string, buf: string): boolean {
+    const maxLen = Math.min(pattern.length - 1, buf.length);
+    for (let len = 1; len <= maxLen; len++) {
+      if (pattern.startsWith(buf.slice(-len))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function maybeSkipCurrentOptional() {
+    // Only skip if:
+    // - the key is optional and not jsonKey
+    // - the full pattern is not in the buffer
+    // - we see a next present key
+    // - buffer doesn't end with a partial prefix (wait for more data)
     while (
       parser.currentKeyIndex < keys.length &&
-      isOptionalKey(keys[parser.currentKeyIndex], parser.config)
+      isOptionalKey(keys[parser.currentKeyIndex], parser.config) &&
+      !isJsonKey(keys[parser.currentKeyIndex], parser.config)
     ) {
       const key = keys[parser.currentKeyIndex];
-      const pattern = key + delimiter!;
+      const pattern = key + d;
 
-      // If the current key pattern is present, do not skip
-      if (parser.buffer.indexOf(pattern) !== -1) {
-        break;
-      }
+      if (findKeyPatternInBuffer(key, parser.buffer) !== -1) break;
 
-      // If the buffer ends with a partial prefix of the key pattern, do not skip (likely split across chunks)
-      let hasPartialPrefixAtEnd = false;
-      if (parser.buffer.length > 0) {
-        const maxCheckLen = Math.min(pattern.length - 1, parser.buffer.length);
-        for (let len = 1; len <= maxCheckLen; len++) {
-          const suffix = parser.buffer.slice(-len);
-          if (pattern.startsWith(suffix)) {
-            hasPartialPrefixAtEnd = true;
-            break;
-          }
-        }
-      }
-      if (hasPartialPrefixAtEnd) {
-        break;
-      }
+      if (hasPartialPrefixAtEnd(pattern, parser.buffer)) break;
 
-      // Look ahead for any subsequent key that is present in the buffer
-      let nextPresentKeyPatternIdx = -1;
+      // Look for next present key pattern
+      let foundNext = false;
       for (let i = parser.currentKeyIndex + 1; i < keys.length; ++i) {
         const k = keys[i];
-        const idx = parser.buffer.indexOf(k + delimiter!);
-        if (idx !== -1) {
-          nextPresentKeyPatternIdx = idx;
+        if (findKeyPatternInBuffer(k, parser.buffer) !== -1) {
+          foundNext = true;
           break;
         }
       }
-
-      // Only skip if a later key appears in the buffer; otherwise, wait for more data
-      if (nextPresentKeyPatternIdx === -1) {
-        break;
-      }
+      if (!foundNext) break;
 
       // Skip this optional key
       parser.skippedKeys.add(key);
@@ -129,7 +130,6 @@ export function parseChunk(
     }
   }
 
-  // Helper: emit meta update once all static keys are processed/skipped and not yet emitted
   function maybeEmitMeta() {
     if (!parser.metaEmitted) {
       let allStaticDone = true;
@@ -165,100 +165,128 @@ export function parseChunk(
   }
 
   mainloop: while (parser.currentKeyIndex < keys.length) {
-    // Try to skip only the current optional key if not present in the buffer
-    maybeSkipCurrentOptional();
+    // Only skip for non-jsonKey optionals
+    if (!(isOptionalKey(keys[parser.currentKeyIndex], parser.config) && isJsonKey(keys[parser.currentKeyIndex], parser.config))) {
+      maybeSkipCurrentOptional();
+    }
 
     if (parser.currentKeyIndex >= keys.length) break mainloop;
 
     const key = keys[parser.currentKeyIndex];
-    const isOptional = isOptionalKey(key, parser.config);
+    const keyPattern = key + d;
     const isStreaming = streamKeys.includes(key);
+    const isKeyJson = isJsonKey(key, parser.config);
+    const isKeyOptional = isOptionalKey(key, parser.config);
 
-    const keyPattern = key + delimiter!;
-    const keyIdx = parser.buffer.indexOf(keyPattern);
-
+    // SEEKING KEY
     if (parser.state === "seeking_key") {
-      if (keyIdx !== -1) {
-        // Found key: move past keyPattern and any whitespace after the delimiter
-        parser.buffer = parser.buffer.slice(keyIdx + keyPattern.length);
+      const kIdx = findKeyPatternInBuffer(key, parser.buffer);
+      // Found key
+      if (kIdx !== -1) {
+        parser.buffer = parser.buffer.slice(kIdx + keyPattern.length);
         parser.buffer = parser.buffer.replace(/^\s+/, "");
         parser.state = isStreaming ? "streaming" : "reading_static";
         parser.keyStartTime = Date.now();
       } else {
-        // Not found; skipping of optional key is already handled in maybeSkipCurrentOptional
+        // For JSON keys, only skip if a later key is present, no hint of this key, and no partial prefix at end
+        if (isKeyJson && isKeyOptional) {
+          const pattern = keyPattern;
+          if (hasPartialPrefixAtEnd(pattern, parser.buffer)) break mainloop;
+          let hasLater = false;
+          for (let i = parser.currentKeyIndex + 1; i < keys.length; ++i) {
+            const k2 = keys[i];
+            if (findKeyPatternInBuffer(k2, parser.buffer) !== -1) {
+              hasLater = true;
+              break;
+            }
+          }
+          if (hasLater) {
+            parser.skippedKeys.add(key);
+            parser.parsed[key] = undefined;
+            updates.push({ type: "skip", key });
+            parser.currentKeyIndex++;
+            parser.state = "seeking_key";
+            parser.keyStartTime = Date.now();
+            continue mainloop;
+          } else {
+            break mainloop;
+          }
+        }
         break mainloop;
       }
     }
 
+    // READING STATIC (not stream key)
     if (parser.state === "reading_static") {
-      // Find position of terminator or (if any) the next present key pattern (even if optional)
-      let valueEndIdx = parser.buffer.indexOf(terminator!);
-
-      let nextPresentKeyPatternIdx = -1;
-      let nextPresentKey = "";
-
-      // Scan subsequent keys looking for ones present in the buffer
-      for (
-        let i = parser.currentKeyIndex + 1;
-        i < keys.length;
-        ++i
-      ) {
-        const k = keys[i];
-        const idx = parser.buffer.indexOf(k + delimiter!);
-        if (idx !== -1 && (nextPresentKeyPatternIdx === -1 || idx < nextPresentKeyPatternIdx)) {
-          nextPresentKeyPatternIdx = idx;
-          nextPresentKey = k;
-          break;
+      if (isKeyJson) {
+        const terminatorIdx = parser.buffer.indexOf(t);
+        if (terminatorIdx === -1) {
+          break mainloop;
         }
-      }
+        const rawValue = parser.buffer.slice(0, terminatorIdx).trim();
+        let parsedJsonValue: any = undefined;
+        let isPureJsonValue = false;
 
-      // whichever comes first: next present key or terminator
-      if (
-        nextPresentKeyPatternIdx !== -1 &&
-        (valueEndIdx === -1 || nextPresentKeyPatternIdx < valueEndIdx)
-      ) {
-        valueEndIdx = nextPresentKeyPatternIdx;
-      }
+        try {
+          parsedJsonValue = JSON.parse(rawValue);
+          isPureJsonValue = true;
+        } catch (e) {
+          // Value may be literal 'null', or invalid JSON, don't parse as JSON, keep fallback logic.
+          isPureJsonValue = false;
+          parsedJsonValue = undefined;
+        }
 
-      if (valueEndIdx === -1) {
-        // Not enough data
-        break mainloop;
-      } else {
-        const rawSlice = parser.buffer.slice(0, valueEndIdx);
-        const rawValue = rawSlice.replace(/;$/, "").trim();
-        // Support JSON keys (e.g., translations)
-        if (isJsonKey(key, parser.config)) {
-          try {
-            const parsedJson = JSON.parse(rawValue);
-            if (key === "translations" && Array.isArray(parsedJson)) {
-              const currentLanguage = String(parser.parsed["language"] ?? "");
-              const translationsObj: Record<string, any> = {};
-              parsedJson.forEach((item: any) => {
-                if (!item || typeof item !== "object") return;
-                const word = String(item.word ?? "");
-                if (!word) return;
-                translationsObj[word.toLowerCase()] = {
-                  word: item.word,
-                  language: currentLanguage,
-                  english: item.translation,
-                  phonetic: item.phonetic,
-                  audioUrl: item.audio || ""
-                };
-              });
-              parser.parsed[key] = translationsObj;
-            } else {
-              // Generic jsonKey: store parsed JSON as-is
-              parser.parsed[key] = parsedJson;
-            }
-          } catch (e) {
-            // Fallback to numeric or string
-            const numValue = Number(rawValue);
-            parser.parsed[key] = isNaN(numValue) ? rawValue : numValue;
-          }
+        if (isPureJsonValue && parsedJsonValue !== undefined) {
+          // If parsedJsonValue is an array or object, keep it as is; else handle string/number/null
+          parser.parsed[key] = parsedJsonValue;
         } else {
+          // fallback: if the raw value is number, number, else as string (including null as string)
           const numValue = Number(rawValue);
-          parser.parsed[key] = isNaN(numValue) ? rawValue : numValue;
+          if (!isNaN(numValue) && rawValue.trim() !== "") {
+            parser.parsed[key] = numValue;
+          } else {
+            parser.parsed[key] = rawValue;
+          }
         }
+
+        parser.buffer = parser.buffer.slice(terminatorIdx + 1); // skip terminator
+        parser.currentKeyIndex++;
+        parser.state = "seeking_key";
+        parser.keyStartTime = Date.now();
+        continue mainloop;
+      } else {
+        // Non-json key: value is up to the next terminator *or* the next key found earliest
+        const termIdx = parser.buffer.indexOf(t);
+        // Look for next present key pattern
+        let nextPresentKeyPatternIdx = -1;
+        for (let i = parser.currentKeyIndex + 1; i < keys.length; ++i) {
+          const k = keys[i];
+          const idx = parser.buffer.indexOf(k + d);
+          if (idx !== -1) {
+            if (nextPresentKeyPatternIdx === -1 || idx < nextPresentKeyPatternIdx) {
+              nextPresentKeyPatternIdx = idx;
+            }
+          }
+        }
+
+        let valueEndIdx = -1;
+        if (
+          nextPresentKeyPatternIdx !== -1 &&
+          (termIdx === -1 || nextPresentKeyPatternIdx < termIdx)
+        ) {
+          valueEndIdx = nextPresentKeyPatternIdx;
+        } else {
+          valueEndIdx = termIdx;
+        }
+
+        if (valueEndIdx === -1) {
+          break mainloop;
+        }
+
+        const rawValue = parser.buffer.slice(0, valueEndIdx).replace(/;$/, "").trim();
+        const numValue = Number(rawValue);
+        parser.parsed[key] = isNaN(numValue) ? rawValue : numValue;
+
         parser.buffer =
           valueEndIdx === nextPresentKeyPatternIdx
             ? parser.buffer.slice(valueEndIdx)
@@ -271,22 +299,16 @@ export function parseChunk(
       }
     }
 
+    // STREAMING
     if (parser.state === "streaming") {
-      let streamEndIdx = parser.buffer.indexOf(terminator!);
+      let streamEndIdx = parser.buffer.indexOf(t);
       let nextPresentKeyPatternIdx = -1;
-      let nextPresentKey = "";
 
-      for (
-        let i = parser.currentKeyIndex + 1;
-        i < keys.length;
-        ++i
-      ) {
+      for (let i = parser.currentKeyIndex + 1; i < keys.length; ++i) {
         const k = keys[i];
-        const idx = parser.buffer.indexOf(k + delimiter!);
+        const idx = parser.buffer.indexOf(k + d);
         if (idx !== -1 && (nextPresentKeyPatternIdx === -1 || idx < nextPresentKeyPatternIdx)) {
           nextPresentKeyPatternIdx = idx;
-          nextPresentKey = k;
-          break;
         }
       }
 
@@ -298,7 +320,6 @@ export function parseChunk(
       }
 
       if (streamEndIdx === -1 && parser.buffer.length === 0) {
-        // Nothing to emit
         break mainloop;
       } else if (streamEndIdx === -1) {
         if (parser.buffer.length > 0) {
@@ -326,10 +347,8 @@ export function parseChunk(
     }
   }
 
-  // Emit meta after all static keys handled (or at completion)
   maybeEmitMeta();
 
-  // If completed, emit complete update (only on new complete)
   if (
     parser.currentKeyIndex >= keys.length &&
     !updates.some((u) => u.type === "complete")

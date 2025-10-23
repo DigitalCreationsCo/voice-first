@@ -147,7 +147,8 @@ class ChatWebSocketClient {
   private handleStreamComplete(message: any) {
     console.log('📨 Chat Complete Handler:', {
       requestId: message.requestId,
-      contentLength: message.content?.length
+      contentLength: message.content?.length,
+      message: message
     });
 
     const request = this.pendingRequests.get(message.requestId);
