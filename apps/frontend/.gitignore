@@ -1,6 +1,6 @@
 .DS_Store
 
-**/node_modules/
+node_modules/
 logs
 *.log
 npm-debug.log*
@@ -15,4 +15,6 @@ lerna-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 
-voice-first-473522-b0fe677d3766.json
+.next
+.vercel
+.env*.local

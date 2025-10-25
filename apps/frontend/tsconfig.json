@@ -22,14 +22,16 @@
     ],
     "paths": {
       "@/*": ["./*"],
-      "auth": ["./auth"]
+      "auth": ["./auth"],
+      "@/shared/*": ["../../shared/*"]
     }
   },
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts"
+    ".next/types/**/*.ts", 
+    "../../shared/audio/audio-helpers.ts"
   ],
   "exclude": ["node_modules"]
 }

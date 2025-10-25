@@ -2,8 +2,8 @@ import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { ApiError, GoogleGenAI, Modality } from "@google/genai";
 import { config } from 'dotenv';
-import { AudioDebugger, AudioFormat } from './lib/audio/helpers.js';
-import { createParser, parseChunk, ParserConfig } from './lib/parser.js';
+import AudioDebugger, { type AudioFormat } from '@/shared/audio/audio-helpers';
+import { createParser, parseChunk, ParserConfig } from './parser.js';
 
 config({
   path: ".env.local",

@@ -8,7 +8,7 @@ import { AuthForm } from "@/components/custom/auth-form";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { login, LoginActionState, loginGoogle } from "../actions";
 import GoogleButton from 'react-google-button'
-import { auth } from "../../../auth";
+import { auth } from "@/auth";
 import { useSession } from "next-auth/react";
 
 export default function Page() {
