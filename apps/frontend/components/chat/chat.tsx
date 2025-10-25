@@ -16,7 +16,7 @@ import { useAudioManager } from "@/hooks/use-audio-manager";
 import { ChatWebSocketClient } from "@/lib/socket";
 import { Message } from "./message";
 import { MultimodalInput } from "./multimodal-input";
-import { AudioDebugger, AudioFormat, TTSDebugLogger } from "@/lib/audio/helpers";
+import { AudioDebugger, AudioFormat, TTSDebugLogger } from "@/shared/audio/audio-helpers";
 
 /**
  * Performance/memo improvements & scroll-to-bottom bugfix rationale:

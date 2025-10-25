@@ -3,7 +3,7 @@
 // High-performance chunk ordering system
 // ============================================
 
-import { AudioConverter, AudioDebugger, AudioFormat, TTSDebugLogger } from "./helpers";
+import { AudioConverter, AudioDebugger, AudioFormat, TTSDebugLogger } from "@/shared/audio/audio-helpers";
 
 interface AudioChunkMetadata {
   chunkIndex: number;
