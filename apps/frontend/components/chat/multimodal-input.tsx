@@ -108,7 +108,7 @@ type MultimodalInputProps = {
   isLoading?: boolean;
   stop?: () => void;
   attachments?: Array<any>;
-  setAttachments?: Dispatch<SetStateAction<Array<any>>>;
+  setAttachments?: any;
   messages: any[];
   handleSubmitMessage?: (text: string, isAudio?: boolean) => void;
   isListening?: boolean;
@@ -209,7 +209,7 @@ const MultimodalInputComponent = ({
         );
 
         if (setAttachments) {
-          setAttachments((currentAttachments) => [
+          setAttachments((currentAttachments: any) => [
             ...currentAttachments,
             ...successfullyUploadedAttachments,
           ]);

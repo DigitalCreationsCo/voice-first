@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import Link from "next/link";
 import { BotIcon, MessageIcon } from "./icons";
-import { FlagIcon } from "react-flag-kit";
+import { FlagIcon, FlagIconCode } from "react-flag-kit";
 import { Button } from "../ui/button";
 
 interface LanguageConfig {
@@ -139,7 +138,7 @@ function Flag({
       tabIndex={0}
       aria-label={`Choose ${language}`}
     >
-      <FlagIcon code={code} size={38} />
+      <FlagIcon code={code as FlagIconCode} size={38} />
       <span>{language}</span>
     </Button>
   );

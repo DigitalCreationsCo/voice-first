@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createParser, parseChunk, ParserConfig, StreamUpdate } from '@/lib/parser';
+import { createParser, parseChunk, ParserConfig, StreamUpdate } from '../parser';
 
 describe('StreamParser', () => {
   it('parses static fields and streams text correctly', () => {
