@@ -7,10 +7,10 @@
     "scripts": {
       "dev:fe": "npm --workspace apps/frontend run dev",
       "dev:s": "npm --workspace apps/server run dev",
-      "dev:all": "concurrently \"npm run dev:f\" \"npm run dev:s\"",
+      "dev:all": "concurrently \"npm run dev:fe\" \"npm run dev:s\"",
       "build:fe": "npm --workspace apps/frontend run build",
       "build:server": "npm --workspace apps/server run build",
-      "build:all": "npm run build:fe && npm run build:server",
+      "build:all": "npm run build:fe && npm run build:server"
     },
     "devDependencies": {
       "concurrently": "^9.0.1",

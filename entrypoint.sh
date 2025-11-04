@@ -20,10 +20,11 @@ gcloud config set project "$PROJECT_ID"
 
 echo "🚀 Deploying Cloud Run service $SERVICE_NAME from source..."
 gcloud run deploy "$SERVICE_NAME" \
-  --source /workspace/apps/server \
+  --source /workspace/apps/server/dist \
   --project "$PROJECT_ID" \
   --region "$REGION" \
   --allow-unauthenticated \
   --quiet
+  # --set-env-vars="GOOGLE_NODE_RUN_SCRIPTS="
 
 echo "✅ Deployment complete."

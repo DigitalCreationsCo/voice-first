@@ -2,12 +2,10 @@ import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { ApiError, GoogleGenAI, Modality } from "@google/genai";
 import { config } from 'dotenv';
-import AudioDebugger, { AudioFormat } from '@/shared/audio/audio-helpers';
+import * as AudioHelpers from '../../shared/audio/audio-helpers.js';
 import { createParser, parseChunk, ParserConfig } from './parser.js';
 
-config({
-  path: ".env.local",
-});
+config({ path: process.env.NODE_ENV === "production" ? ".env" : ".env.local" });
 
 const hostname = 'localhost';
 const wsPort = parseInt(process.env.WS_PORT || '3001', 10);
@@ -353,9 +351,9 @@ async function handleTTSRequest(ws: any, message: any) {
           for (const part of candidate.content.parts) {
             if (part.inlineData && part.inlineData.data) {
 
-              const isValidBase64 = AudioDebugger.validate(
+              const isValidBase64 = AudioHelpers.AudioDebugger.validate(
                 part.inlineData.data,
-                AudioFormat.BASE64_STRING
+                AudioHelpers.AudioFormat.BASE64_STRING
               );
               
               if (!isValidBase64) {

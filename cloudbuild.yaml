@@ -1,0 +1,6 @@
+steps:
+- name: 'node'
+  env: 
+  - NODE_ENV: "production"
+  entrypoint: 'node'
+  args: ['dist/apps/server/server.js']
