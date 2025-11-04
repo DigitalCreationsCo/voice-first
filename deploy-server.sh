@@ -7,7 +7,7 @@ GOOGLE_KEY_FILE="$(pwd)/voice-first-473522-b0fe677d3766.json"
 GOOGLE_KEY_PATH="/workspace/voice-first-473522-b0fe677d3766.json"
 
 echo "🛠️  Building Docker image: $IMAGE_NAME ..."
-docker build -t "$IMAGE_NAME" .
+docker build --no-cache -t "$IMAGE_NAME" .
 
 if [ "$(docker ps -aq -f name=$CONTAINER_NAME)" ]; then
   echo "🧹  Removing existing container: $CONTAINER_NAME ..."

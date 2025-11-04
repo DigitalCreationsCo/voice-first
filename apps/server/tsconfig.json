@@ -1,13 +1,30 @@
 {
     "extends": "../../tsconfig.base.json",
     "compilerOptions": {
-        "module": "esnext",
+        // Match Node.js runtime expectations
+        "target": "ES2020",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
         "outDir": "dist",
         "sourceMap": true,
+        "allowJs": false,
+        "skipLibCheck": true,
+        "isolatedModules": true,
+        "declaration": true,
+        "emitDeclarationOnly": false,
+        "strict": true,
+        "esModuleInterop": true,
+        "resolveJsonModule": true
     },
     "include": [
-        "**/*.ts",
-        "../../shared/audio/audio-helpers.*"
+        "./**/*.ts",
+        "../../shared/audio/audio-helpers.ts"
     ],
-    "exclude": ["node_modules"]
-  }
+    "exclude": [
+        "**/node_modules",
+        "tests",
+        "**/tests",
+        "**/*.test.ts",
+        "**/*.spec.ts"
+    ]
+}
