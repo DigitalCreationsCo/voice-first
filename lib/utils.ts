@@ -6,7 +6,7 @@ import {
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { Chat } from "@/db/schema";
-import { parsePgArray } from "drizzle-orm/pg-core";
+// import { parsePgArray } from "drizzle-orm/pg-core"; // Not used, can be removed
 
 export function encode(bytes: Uint8Array) {
   let binary = '';
@@ -218,7 +218,7 @@ export interface UIMessage {
   translations?: Record<string, TranslationData>;
 };
 
-export function buildUIMessage(props: CreateUIMessage):UIMessage {
+export function buildUIMessage(props: CreateUIMessage): UIMessage {
   return {
     id: props.id || generateMessageId(),
     role: props.role,
@@ -227,7 +227,7 @@ export function buildUIMessage(props: CreateUIMessage):UIMessage {
     isAudio: props.isAudio || false,
     audioData: props.audioData,
   };
-};
+}
 
 export interface TranslationData {
   word: string;
@@ -237,7 +237,7 @@ export interface TranslationData {
   audioUrl?: string;
   addedAt?: number;
   usageCount?: number;
-};
+}
 
 export type LanguageName = 'german' | 'french' | 'spanish' | 'italian' | 'portuguese' | 'japanese';
 export interface TranslationsByLanguage {
@@ -253,28 +253,20 @@ export function getTitleFromChat(chat: Chat) {
   }
 
   return firstMessage.content;
-};
+}
 
-export function getWebSocketUrl(): string {
+export function getSSEUrls(): { chatUrl: string; ttsUrl: string } {
   if (typeof window === 'undefined') {
-    return ''; // Server-side
-  }
-
-  if (!process.env.NEXT_PUBLIC_BACKEND_HOSTPORT) {
-    throw new Error("Backend host is not defined")
+    return { chatUrl: '', ttsUrl: '' }; // Server-side
   }
 
   const isDevelopment = process.env.NODE_ENV === 'development';
-  
-  if (isDevelopment) {
-    const wsPort = process.env.NEXT_PUBLIC_WS_PORT || '3001';
-    return `ws://${window.location.hostname}:${wsPort}/api/chat/websocket`;
-  } else {
-    const hostPort = process.env.NEXT_PUBLIC_BACKEND_HOSTPORT!;
-    const protocol = hostPort.includes('https:') ? 'wss:' : 'ws:';
-    const wsUrl = hostPort.replace(/^https?:/, protocol);
-    return `${wsUrl}/api/chat/websocket`;
-  }
+  const baseUrl = isDevelopment ? '' : process.env.NEXT_PUBLIC_BACKEND_HOSTPORT || '';
+
+  return {
+    chatUrl: `${baseUrl}/api/chat-refactor`,
+    ttsUrl: `${baseUrl}/api/tts-refactor`,
+  };
 }
 
 export function findLastIncompleteAssistantMessageIndex(messages: UIMessage[]) {
@@ -284,5 +276,5 @@ export function findLastIncompleteAssistantMessageIndex(messages: UIMessage[]) {
       return i;
     }
   }
-  return null; 
+  return null;
 }

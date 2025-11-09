@@ -10,10 +10,10 @@ import React, {
 } from "react";
 import { toast } from "sonner";
 import {
-  buildUIMessage, generateMessageId, getWebSocketUrl, TranslationData, UIMessage
+  buildUIMessage, generateMessageId, getSSEUrls, TranslationData, UIMessage
 } from "@/lib/utils";
 import { useAudioManager } from "@/hooks/use-audio-manager";
-import { ChatWebSocketClient } from "@/lib/socket";
+import { SSEClient } from "@/lib/sse-client";
 import { Message } from "./message";
 import { MultimodalInput } from "./multimodal-input";
 import { AudioDebugger, AudioFormat, TTSDebugLogger } from "@/shared/audio/audio-helpers";
@@ -165,7 +165,7 @@ export function Chat({
     autoScrollToBottomRef.current = false;
   }, []);
 
-  const clientRef = useRef<ChatWebSocketClient | null>(null);
+  const clientRef = useRef<SSEClient | null>(null);
 
   const {
     isInitialized,
@@ -196,29 +196,27 @@ export function Chat({
   const setAttachments = useCallback((value: any[]) => dispatch({ type: 'setAttachments', payload: value }), []);
 
   useEffect(() => {
-    const wsUrl = getWebSocketUrl()
-    const client = new ChatWebSocketClient(wsUrl);
+    const { chatUrl, ttsUrl } = getSSEUrls();
+    const client = new SSEClient(chatUrl, ttsUrl);
     client.setConnectionChangeCallback((connected) => {
       dispatch({ type: 'setIsConnected', payload: connected });
       if (!connected) {
-        dispatch({ type: 'setError', payload: 'Disconnected from server. Reconnecting...' });
+        // For SSE, 'disconnected' might mean a network error or server issue, not a persistent state.
+        // We'll keep it simple for now and assume it's always connected for HTTP.
+        dispatch({ type: 'setError', payload: 'Network error or server issue.' });
       } else {
         dispatch({ type: 'setError', payload: '' });
       }
     });
 
-    client.connect()
-      .then(() => {
-        console.log('Connected successfully');
-        clientRef.current = client;
-      })
-      .catch((err) => {
-        console.error('Connection failed:', err);
-        dispatch({ type: 'setError', payload: 'Failed to connect to chat server' });
-      });
+    // SSEClient doesn't have a connect method, it's request-based.
+    // We can directly set the clientRef and assume it's "connected".
+    console.log('SSE Client initialized');
+    clientRef.current = client;
+    dispatch({ type: 'setIsConnected', payload: true }); // Assume connected for SSE
 
     return () => {
-      client.disconnect();
+      client.disconnect(); // Clears pending requests
     };
   }, []);
 
@@ -261,8 +259,8 @@ export function Chat({
     try {
       const chatRequestId = clientRef.current.sendChatMessage(updatedMessages, {
         onStreamStart: (message) => {
-          TTSDebugLogger.startSession(chatRequestId, assistantMessageId);
-          TTSDebugLogger.logStage(chatRequestId, 'Chat stream started', { requestId: message.requestId });
+          TTSDebugLogger.startSession(message.requestId, assistantMessageId); // Use message.requestId for session
+          TTSDebugLogger.logStage(message.requestId, 'Chat stream started', { requestId: message.requestId });
         },
 
         onChunk: async (requestId, textChunk, chunkIndex) => {
@@ -334,11 +332,92 @@ export function Chat({
           dispatch({ type: 'setIsLoading', payload: false });
 
           TTSDebugLogger.logStage(chatRequestId, 'Sending TTS request');
+          // The SSEClient's sendTTSRequest returns the requestId it generates internally
           const ttsRequestId = clientRef.current?.sendTTSRequest(
             fullResponse,
             0,
-            chatRequestId
+            chatRequestId, // parentRequestId
+            { // Pass callbacks directly for TTS
+              onTTSStreamStart(message) {
+                TTSDebugLogger.logStage(chatRequestId, 'TTS stream started', message);
+              },
+              onTTSChunk(parentRequestId, audioChunk, audioChunkIndex) {
+                TTSDebugLogger.updateSession(chatRequestId, {
+                  audioChunksReceived: audioChunkIndex + 1
+                });
+                console.group(`📥 TTS Chunk ${audioChunkIndex}`);
+                TTSDebugLogger.logStage(chatRequestId, `Audio chunk ${audioChunkIndex} received`, {
+                  requestId: parentRequestId, // Use parentRequestId for logging context
+                  base64Length: audioChunk?.length,
+                  chunkIndex: audioChunkIndex
+                });
+
+                try {
+                  if (!AudioDebugger.validate(audioChunk, AudioFormat.BASE64_STRING)) {
+                    throw new Error('Invalid base64 audio data');
+                  }
+                  AudioDebugger.log('Raw audio chunk', audioChunk, AudioFormat.BASE64_STRING, {
+                    chunkIndex: audioChunkIndex,
+                    requestId: parentRequestId // Use parentRequestId for logging context
+                  });
+                  enqueueAudioChunk(
+                    parentRequestId, // Use parentRequestId for enqueueing
+                    audioChunkIndex,
+                    audioChunk,
+                    assistantMessageId
+                  );
+                  TTSDebugLogger.logStage(chatRequestId, `Enqueued chunk ${audioChunkIndex} for playback`);
+                  console.groupEnd();
+                } catch (error: any) {
+                  TTSDebugLogger.logError(chatRequestId, `Chunk ${audioChunkIndex} processing failed: ${error.message}`, {
+                    audioChunkIndex,
+                    error: error.stack
+                  });
+                  console.groupEnd();
+                  AudioDebugger.printSummary();
+                }
+              },
+              onTTSComplete(parentRequestId, fullAudio, totalChunks) {
+                TTSDebugLogger.logStage(chatRequestId, 'TTS generation complete', {
+                  requestId: parentRequestId, // Use parentRequestId for logging context
+                  totalChunks,
+                  fullAudioLength: fullAudio?.length
+                });
+                console.group(`✅ TTS Complete`);
+                try {
+                  markRequestComplete(chatRequestId);
+                  TTSDebugLogger.logStage(chatRequestId, 'Marked request complete in audio queue');
+                  dispatch({
+                    type: 'updateMessage',
+                    id: assistantMessageId,
+                    updater: (msg: UIMessage) =>
+                      ({ ...msg, audioData: fullAudio }),
+                  });
+                  TTSDebugLogger.printSummary(chatRequestId);
+                  AudioDebugger.printSummary();
+                  AudioDebugger.clearLogs();
+                  TTSDebugLogger.clearSession(chatRequestId);
+                  console.groupEnd();
+                } catch (error: any) {
+                  TTSDebugLogger.logError(chatRequestId, `TTS complete processing failed: ${error.message}`, {
+                    error: error.stack
+                  });
+                  console.groupEnd();
+                }
+              },
+              onError: (errorMsg) => {
+                TTSDebugLogger.logError(chatRequestId, errorMsg);
+                TTSDebugLogger.printSummary(chatRequestId);
+                AudioDebugger.printSummary();
+                dispatch({ type: 'setError', payload: errorMsg });
+                dispatch({ type: 'setIsLoading', payload: false });
+                setTranscript('');
+                toast.error(errorMsg);
+              }
+            }
           );
+          // The SSEClient's sendTTSRequest returns the requestId it generates internally,
+          // but we need to update the session with the parentRequestId for consistency.
           TTSDebugLogger.updateSession(chatRequestId, { ttsRequestId });
 
           dispatch({
@@ -473,11 +552,11 @@ export function Chat({
       dispatch({ type: 'addMessage', payload: firstAssistantMessage });
       setAllowConcurrentRequests(true);
 
-      const chatRequestId = '1'
+      const chatRequestId = generateMessageId(); // Generate a new request ID for the initial TTS
       clientRef.current?.sendTTSRequest(
         content,
         0,
-        chatRequestId,
+        chatRequestId, // parentRequestId
         {
           onTTSStreamStart(message) {
             TTSDebugLogger.startSession(chatRequestId, assistantMessageId);
@@ -675,4 +754,3 @@ export function Chat({
  * - For the most robust fix, ensure all logic which causes scrollToBottom() only runs on actual new message/assistant reply insertions, not on translation expansion events within Message.
  * - If subcomponents (like translation expand/collapse UI) are lifting state up, keep those state fields inside the memoized Message component or even in local state only, not in Chat parent.
  */
-
