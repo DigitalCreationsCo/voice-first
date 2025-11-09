@@ -62,7 +62,7 @@ export const Overview = ({
     >
       <div className="border-none bg-muted/50 rounded-2xl p-6 flex flex-col gap-4 text-zinc-500 text-sm dark:text-zinc-400 dark:border-zinc-700 shadow-lg">
         <p className="flex flex-row justify-center gap-2 items-center text-lg mb-2">
-          <span className="w-5 h-5 border-[1.6px] rounded-sm p-0.5 overflow-clip border-zinc-500 dark:border-zinc-400 bg-zinc-100 dark:bg-zinc-700 flex items-center justify-center">
+          <span className="w-5 h-5 border-[1.6px] rounded-sm p-0.5 overflow-clip border-zinc-500 text-zinc-500 dark:text-zinc-400 flex items-center justify-center">
             <BotIcon />
           </span>
           <MessageIcon size={20} />{" "}

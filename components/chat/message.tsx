@@ -4,11 +4,12 @@ import { motion } from "framer-motion";
 import { BotIcon, UserIcon } from "../custom/icons";
 import { Markdown } from "../custom/markdown";
 import { PreviewAttachment } from "./preview-attachment";
-import { PlayIcon, StarIcon, Volume2Icon } from "lucide-react";
+import { PlayIcon, Volume2Icon } from "lucide-react";
 import { Button } from "../ui/button";
 import { UIMessage } from "@/lib/utils";
 import Translation from "../language/translation";
 import { useState, memo, useCallback } from "react";
+import { LanguageRating } from "./language-rating";
 
 // Memoized attachment preview list for performance
 const MemoizedPreviewAttachmentList = memo(function MemoizedPreviewAttachmentList({
@@ -104,7 +105,7 @@ const MessageComponent: React.FC<MessageComponentProps> = ({
           }`}
         >
           <span
-            className={`flex-shrink-0 w-5 h-5 border-[1.6px] rounded-sm p-0.5 overflow-clip
+            className={`flex flex-shrink-0 w-5 h-5 border-[1.6px] rounded-sm p-0.5 overflow-clip items-center justify-center
               ${message.role === "assistant"
                 ? "self-start text-zinc-500 border-zinc-500"
                 : "self-end ml-2 text-zinc-300 border-zinc-300"
@@ -143,12 +144,7 @@ const MessageComponent: React.FC<MessageComponentProps> = ({
           </div>
         )}
 
-        {Number(message.languageRating) ? (
-          <div className="flex self-end items-center gap-1">
-            <StarIcon className="fill-yellow-500" size={12} />
-            <p className="text-sm">{message.languageRating}</p>
-          </div>
-        ) : null}
+        <LanguageRating rating={Number(message.languageRating)} />
 
         {attachments && (
           <MemoizedPreviewAttachmentList attachments={attachments} />
